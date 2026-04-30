@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A standalone Next.js 15 / React 19 chat UI that talks to a **PlexChat WebSocket agent server** (a separate process, not in this repo). It was extracted from a monorepo — the README still references the old layout (`pnpm dev:all`, port 3001). The actual scripts live in `package.json` and the dev server runs on **port 3000**.
+A standalone Next.js 15 / React 19 chat UI that talks to a **PlexChat WebSocket agent server** (a separate process, not in this repo). It was extracted from a monorepo. The dev server runs on **port 3000**.
 
 ## Commands
 
