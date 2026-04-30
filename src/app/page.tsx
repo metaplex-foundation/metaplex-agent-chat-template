@@ -97,6 +97,7 @@ export default function Home() {
     if (!hashContainsProfile(window.location.hash)) return;
     const draft = tryDecodeHashToProfile(window.location.hash);
     if (!draft) return;
+    firstRunHandledRef.current = true;
     setModalMode({ kind: 'transient', draft });
     history.replaceState(null, '', window.location.pathname + window.location.search);
   }, []);
