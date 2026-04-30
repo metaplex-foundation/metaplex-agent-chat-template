@@ -17,11 +17,12 @@ export type ModalMode =
 
 interface ProfileModalProps {
   mode: ModalMode;
+  onModeChange: (mode: ModalMode) => void;
   onClose: () => void;
   onConnectAfterSave?: (profileId: string) => void;
 }
 
-export function ProfileModal({ mode, onClose, onConnectAfterSave }: ProfileModalProps) {
+export function ProfileModal({ mode, onModeChange, onClose, onConnectAfterSave }: ProfileModalProps) {
   const { profiles, activeProfile, createProfile, updateProfile, deleteProfile, setActiveProfile } = useProfileStore();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
@@ -149,14 +150,7 @@ export function ProfileModal({ mode, onClose, onConnectAfterSave }: ProfileModal
                   <li key={p.id} className="group relative">
                     <button
                       type="button"
-                      onClick={() => {
-                        if (mode.kind === 'manage') {
-                          (window as unknown as { __setProfileModalMode?: (m: ModalMode) => void }).__setProfileModalMode?.({
-                            kind: 'manage',
-                            selectedId: p.id,
-                          });
-                        }
-                      }}
+                      onClick={() => onModeChange({ kind: 'manage', selectedId: p.id })}
                       className={`flex w-full flex-col items-start gap-0.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                         isSelected ? 'bg-zinc-800' : 'hover:bg-zinc-800/60'
                       }`}
@@ -214,11 +208,7 @@ export function ProfileModal({ mode, onClose, onConnectAfterSave }: ProfileModal
             </ul>
             <button
               type="button"
-              onClick={() => {
-                (window as unknown as { __setProfileModalMode?: (m: ModalMode) => void }).__setProfileModalMode?.({
-                  kind: 'create',
-                });
-              }}
+              onClick={() => onModeChange({ kind: 'create' })}
               className="m-2 rounded-lg border border-dashed border-zinc-700 px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-800/60"
             >
               + New profile
