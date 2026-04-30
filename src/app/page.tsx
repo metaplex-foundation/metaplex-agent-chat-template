@@ -45,9 +45,10 @@ export default function Home() {
 
   const debug = useDebugPanel();
 
-  const { activeProfile, setActiveProfile } = useProfileStore();
+  const { activeProfile, setActiveProfile, profiles } = useProfileStore();
   const [modalMode, setModalMode] = useState<ModalMode>({ kind: 'closed' });
   const hashBootstrappedRef = useRef(false);
+  const firstRunHandledRef = useRef(false);
 
   const { messages, isConnected, isReconnecting, isAgentTyping, error, sendMessage, sendWalletConnect, sendWalletDisconnect, sendTxResult, sendTxError, wsLog, clearWsLog } =
     usePlexChat({
@@ -99,6 +100,20 @@ export default function Home() {
     setModalMode({ kind: 'transient', draft });
     history.replaceState(null, '', window.location.pathname + window.location.search);
   }, []);
+
+  // First-run auto-open: if there are no saved profiles and nothing else has
+  // opened the modal (e.g. a share-link hash), open the create modal.
+  useEffect(() => {
+    if (firstRunHandledRef.current) return;
+    if (modalMode.kind !== 'closed') {
+      firstRunHandledRef.current = true;
+      return;
+    }
+    if (profiles.length === 0) {
+      firstRunHandledRef.current = true;
+      setModalMode({ kind: 'create' });
+    }
+  }, [modalMode.kind, profiles.length]);
 
   // Guard: warn the user if they try to close/refresh the tab while a
   // transaction approval is still pending. Losing the window abandons
