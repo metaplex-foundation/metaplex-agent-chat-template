@@ -9,7 +9,7 @@ export function encodeProfileToHash(
   const params = new URLSearchParams();
   params.set('ws', input.wsUrl);
   if (input.token) params.set('token', input.token);
-  params.set('rpc', input.rpcUrl);
+  if (input.rpcUrl) params.set('rpc', input.rpcUrl);
   params.set('cluster', input.cluster);
   if (input.name) params.set('name', input.name);
   return `#${params.toString()}`;
