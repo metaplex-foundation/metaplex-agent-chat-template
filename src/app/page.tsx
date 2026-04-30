@@ -9,7 +9,7 @@ import { useDebugPanel } from '@/hooks/use-debug-panel';
 import { ChatPanel } from '@/components/chat-panel';
 import { TransactionApproval } from '@/components/transaction-approval';
 import { DebugPanel } from '@/components/debug/debug-panel';
-import { wsUrl, wsToken } from './env';
+import { useProfileStore } from '@/lib/profile-store';
 
 function ConnectionStatus({ isConnected, isReconnecting }: { isConnected: boolean; isReconnecting: boolean }) {
   if (isConnected) {
@@ -42,10 +42,12 @@ export default function Home() {
 
   const debug = useDebugPanel();
 
+  const { activeProfile } = useProfileStore();
+
   const { messages, isConnected, isReconnecting, isAgentTyping, error, sendMessage, sendWalletConnect, sendWalletDisconnect, sendTxResult, sendTxError, wsLog, clearWsLog } =
     usePlexChat({
-      url: wsUrl(),
-      token: wsToken(),
+      url: activeProfile?.wsUrl ?? '',
+      token: activeProfile?.token ?? '',
       onTransaction: (tx) => setTxQueue((prev) => [...prev, tx]),
       onDebugEvent: debug.handleDebugEvent,
     });
@@ -121,6 +123,15 @@ export default function Home() {
           className="border-b border-red-500/30 bg-red-950/40 px-4 py-2 text-center text-sm text-red-300"
         >
           {error}
+        </div>
+      )}
+
+      {!activeProfile && (
+        <div
+          role="status"
+          className="border-b border-amber-500/30 bg-amber-950/40 px-4 py-2 text-center text-sm text-amber-300"
+        >
+          No profile configured — open settings to add one.
         </div>
       )}
 

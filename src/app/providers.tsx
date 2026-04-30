@@ -4,11 +4,15 @@ import { useMemo } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
+import { useProfileStore } from '@/lib/profile-store';
 
 import '@solana/wallet-adapter-react-ui/styles.css';
 
+const FALLBACK_RPC = 'https://api.devnet.solana.com';
+
 export function Providers({ children }: { children: React.ReactNode }) {
-  const endpoint = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com';
+  const { activeProfile } = useProfileStore();
+  const endpoint = activeProfile?.rpcUrl || FALLBACK_RPC;
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
 
   return (
