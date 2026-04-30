@@ -242,10 +242,11 @@ export function ProfileModal({ mode, onModeChange, onClose, onConnectAfterSave }
           <div className="flex-1 overflow-y-auto p-5">
             <ProfileForm
               initialValue={formInitial}
-              submitLabel={mode.kind === 'transient' || !selectedProfile ? 'Save' : 'Save'}
+              submitLabel="Save"
               secondaryLabel="Save & Connect"
               onSubmit={(input) => {
-                handleSave(input);
+                const profile = handleSave(input);
+                onModeChange({ kind: 'manage', selectedId: profile.id });
               }}
               onSecondary={(input) => {
                 handleConnect(input);
