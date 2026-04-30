@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import type { ServerTransaction } from '@/types/plexchat-protocol';
@@ -12,6 +12,7 @@ import { DebugPanel } from '@/components/debug/debug-panel';
 import { ProfilePill } from '@/components/profile/profile-pill';
 import { ProfileModal, type ModalMode } from '@/components/profile/profile-modal';
 import { useProfileStore } from '@/lib/profile-store';
+import { hashContainsProfile, tryDecodeHashToProfile } from '@/lib/share-link';
 
 function ConnectionStatus({ isConnected, isReconnecting }: { isConnected: boolean; isReconnecting: boolean }) {
   if (isConnected) {
@@ -46,6 +47,7 @@ export default function Home() {
 
   const { activeProfile, setActiveProfile } = useProfileStore();
   const [modalMode, setModalMode] = useState<ModalMode>({ kind: 'closed' });
+  const hashBootstrappedRef = useRef(false);
 
   const { messages, isConnected, isReconnecting, isAgentTyping, error, sendMessage, sendWalletConnect, sendWalletDisconnect, sendTxResult, sendTxError, wsLog, clearWsLog } =
     usePlexChat({
@@ -84,6 +86,19 @@ export default function Home() {
       sendWalletDisconnect();
     }
   }, [wallet.publicKey, isConnected, sendWalletConnect, sendWalletDisconnect]);
+
+  // Bootstrap a transient profile from a share link's URL hash on first paint.
+  // Runs once; the hash is cleared so a refresh doesn't re-prompt.
+  useEffect(() => {
+    if (hashBootstrappedRef.current) return;
+    hashBootstrappedRef.current = true;
+    if (typeof window === 'undefined') return;
+    if (!hashContainsProfile(window.location.hash)) return;
+    const draft = tryDecodeHashToProfile(window.location.hash);
+    if (!draft) return;
+    setModalMode({ kind: 'transient', draft });
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, []);
 
   // Guard: warn the user if they try to close/refresh the tab while a
   // transaction approval is still pending. Losing the window abandons
