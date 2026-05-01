@@ -52,8 +52,8 @@ export function ProfileModal({ mode, onModeChange, onClose, onConnectAfterSave }
 
   const formInitial: ProfileInput | undefined = useMemo(() => {
     if (mode.kind === 'manage' && selectedProfile) {
-      const { name, wsUrl, token, rpcUrl, cluster } = selectedProfile;
-      return { name, wsUrl, token, rpcUrl, cluster };
+      const { name, wsUrl, token, preset, customRpcUrl, customCluster } = selectedProfile;
+      return { name, wsUrl, token, preset, customRpcUrl, customCluster };
     }
     if (mode.kind === 'transient') return mode.draft;
     return undefined;
@@ -88,8 +88,9 @@ export function ProfileModal({ mode, onModeChange, onClose, onConnectAfterSave }
       name: input.name,
       wsUrl: input.wsUrl,
       token: input.token,
-      rpcUrl: input.rpcUrl,
-      cluster: input.cluster,
+      preset: input.preset,
+      customRpcUrl: input.customRpcUrl,
+      customCluster: input.customCluster,
     });
     const url = `${window.location.origin}${window.location.pathname}${hash}`;
     navigator.clipboard.writeText(url).then(

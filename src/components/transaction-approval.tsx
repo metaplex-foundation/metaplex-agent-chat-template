@@ -4,7 +4,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL, SystemProgram, VersionedTransaction } from '@solana/web3.js';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import type { ServerTransaction } from '@/types/plexchat-protocol';
-import { useProfileStore } from '@/lib/profile-store';
+import { useProfileStore, effectiveCluster } from '@/lib/profile-store';
 
 const SYSTEM_PROGRAM_ID = SystemProgram.programId.toBase58();
 
@@ -285,7 +285,8 @@ export function TransactionApproval({ transaction, onComplete }: TransactionAppr
   }
 
   const { activeProfile } = useProfileStore();
-  const cluster = activeProfile?.cluster ?? 'devnet';
+  const cluster = activeProfile ? effectiveCluster(activeProfile) : 'devnet';
+  const isLocalnet = activeProfile?.preset === 'localnet';
   const clusterQuery = cluster === 'mainnet-beta' ? '' : `?cluster=${cluster}`;
   const explorerUrl = signature
     ? `https://explorer.solana.com/tx/${signature}${clusterQuery}`
@@ -413,7 +414,7 @@ export function TransactionApproval({ transaction, onComplete }: TransactionAppr
               <p className="flex-1 truncate font-mono text-xs text-zinc-500">{signature}</p>
               <CopyButton text={signature} />
             </div>
-            {explorerUrl && (
+            {!isLocalnet && explorerUrl && (
               <a
                 href={explorerUrl}
                 target="_blank"
