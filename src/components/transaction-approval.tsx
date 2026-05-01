@@ -4,7 +4,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL, SystemProgram, VersionedTransaction } from '@solana/web3.js';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import type { ServerTransaction } from '@/types/plexchat-protocol';
-import { solanaCluster } from '@/app/env';
+import { useProfileStore } from '@/lib/profile-store';
 
 const SYSTEM_PROGRAM_ID = SystemProgram.programId.toBase58();
 
@@ -284,7 +284,8 @@ export function TransactionApproval({ transaction, onComplete }: TransactionAppr
     }
   }
 
-  const cluster = solanaCluster();
+  const { activeProfile } = useProfileStore();
+  const cluster = activeProfile?.cluster ?? 'devnet';
   const clusterQuery = cluster === 'mainnet-beta' ? '' : `?cluster=${cluster}`;
   const explorerUrl = signature
     ? `https://explorer.solana.com/tx/${signature}${clusterQuery}`

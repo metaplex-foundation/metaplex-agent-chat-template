@@ -1,44 +1,38 @@
 # PlexChat Test UI
 
-Lightweight Next.js app for testing the PlexChat WebSocket agent without spinning up metaplex.com.
+Generic Next.js client for any PlexChat WebSocket agent. Multiple connection profiles are managed in-app and persisted to `localStorage` — no env vars required.
 
 ## Quick Start
 
-1. Copy the example env file and fill in your values:
-
 ```bash
-cp .env.local.example .env.local
+pnpm install
+pnpm dev
 ```
 
-Set `NEXT_PUBLIC_WS_TOKEN` to match the `WEB_CHANNEL_TOKEN` in your server's `.env`.
+Open http://localhost:3000. The first run prompts you to create a connection profile.
 
-2. Start the agent server and UI together from the workspace root:
+## Profile fields
 
-```bash
-pnpm dev:all
-```
+| Field | Description |
+| --- | --- |
+| Name | Friendly label for the profile |
+| WebSocket URL | Full URL: `ws://localhost:3002` or `wss://agent.example.com:3002` |
+| Token | Shared secret matching the server's `WEB_CHANNEL_TOKEN` (≥32 chars) |
+| Solana RPC URL | RPC endpoint used by the wallet adapter |
+| Cluster | `mainnet-beta` / `devnet` / `testnet` — drives Explorer links |
 
-Or run just the UI:
+## Sharing a profile
 
-```bash
-pnpm dev:ui
-```
+In the profile editor, click **Copy share link**. The URL contains the profile in its hash fragment (`#ws=...&token=...&rpc=...&cluster=...&name=...`). Opening it on another machine pre-fills the form in transient mode — nothing is saved until you click **Save** or **Save & Connect**.
 
-3. Open http://localhost:3001
-
-## Environment Variables
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `NEXT_PUBLIC_WS_HOST` | `localhost` | WebSocket server host |
-| `NEXT_PUBLIC_WS_PORT` | `3002` | WebSocket server port |
-| `NEXT_PUBLIC_WS_TOKEN` | _(empty)_ | Auth token (must match server's `WEB_CHANNEL_TOKEN`) |
-| `NEXT_PUBLIC_SOLANA_RPC_URL` | `https://api.devnet.solana.com` | Solana RPC endpoint |
+Hash fragments are not sent to servers (no Referer/proxy leakage), but they appear in browser history and are visible to anyone with screen access. Treat tokens accordingly.
 
 ## Features
 
-- Real Solana wallet connection (Phantom, Solflare) via wallet adapter
-- WebSocket chat with auto-reconnect
-- Typing indicator
+- Multiple named connection profiles, switchable from the header
+- Hash-fragment share links for transient connections
+- Real Solana wallet (Phantom, Solflare) via wallet-adapter
+- WebSocket auto-reconnect with exponential backoff
+- Streaming agent responses, typing indicator
 - Transaction approval flow (sign + send in browser)
-- Connection status indicator
+- Debug panel with per-step traces and token totals (Cmd/Ctrl+D)

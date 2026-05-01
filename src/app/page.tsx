@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import type { ServerTransaction } from '@/types/plexchat-protocol';
@@ -9,7 +9,10 @@ import { useDebugPanel } from '@/hooks/use-debug-panel';
 import { ChatPanel } from '@/components/chat-panel';
 import { TransactionApproval } from '@/components/transaction-approval';
 import { DebugPanel } from '@/components/debug/debug-panel';
-import { wsUrl, wsToken } from './env';
+import { ProfilePill } from '@/components/profile/profile-pill';
+import { ProfileModal, type ModalMode } from '@/components/profile/profile-modal';
+import { useProfileStore } from '@/lib/profile-store';
+import { hashContainsProfile, tryDecodeHashToProfile } from '@/lib/share-link';
 
 function ConnectionStatus({ isConnected, isReconnecting }: { isConnected: boolean; isReconnecting: boolean }) {
   if (isConnected) {
@@ -42,13 +45,37 @@ export default function Home() {
 
   const debug = useDebugPanel();
 
+  const { activeProfile, setActiveProfile, profiles } = useProfileStore();
+  const [modalMode, setModalMode] = useState<ModalMode>({ kind: 'closed' });
+  const hashBootstrappedRef = useRef(false);
+  const firstRunHandledRef = useRef(false);
+
   const { messages, isConnected, isReconnecting, isAgentTyping, error, sendMessage, sendWalletConnect, sendWalletDisconnect, sendTxResult, sendTxError, wsLog, clearWsLog } =
     usePlexChat({
-      url: wsUrl(),
-      token: wsToken(),
+      url: activeProfile?.wsUrl ?? '',
+      token: activeProfile?.token ?? '',
       onTransaction: (tx) => setTxQueue((prev) => [...prev, tx]),
       onDebugEvent: debug.handleDebugEvent,
     });
+
+  const isBusy = txQueue.length > 0 || isAgentTyping;
+
+  const handleSwitchProfile = (id: string) => {
+    if (id === activeProfile?.id) return;
+    if (isBusy) {
+      const ok = window.confirm('There is a transaction or response in progress. Switch profiles anyway?');
+      if (!ok) return;
+    }
+    setActiveProfile(id);
+  };
+
+  const handleDisconnect = () => {
+    if (isBusy) {
+      const ok = window.confirm('There is a transaction or response in progress. Disconnect anyway?');
+      if (!ok) return;
+    }
+    setActiveProfile(null);
+  };
 
   // Sync wallet state with WebSocket server
   useEffect(() => {
@@ -60,6 +87,34 @@ export default function Home() {
       sendWalletDisconnect();
     }
   }, [wallet.publicKey, isConnected, sendWalletConnect, sendWalletDisconnect]);
+
+  // Bootstrap a transient profile from a share link's URL hash on first paint.
+  // Runs once; the hash is cleared so a refresh doesn't re-prompt.
+  useEffect(() => {
+    if (hashBootstrappedRef.current) return;
+    hashBootstrappedRef.current = true;
+    if (typeof window === 'undefined') return;
+    if (!hashContainsProfile(window.location.hash)) return;
+    const draft = tryDecodeHashToProfile(window.location.hash);
+    if (!draft) return;
+    firstRunHandledRef.current = true;
+    setModalMode({ kind: 'transient', draft });
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, []);
+
+  // First-run auto-open: if there are no saved profiles and nothing else has
+  // opened the modal (e.g. a share-link hash), open the create modal.
+  useEffect(() => {
+    if (firstRunHandledRef.current) return;
+    if (modalMode.kind !== 'closed') {
+      firstRunHandledRef.current = true;
+      return;
+    }
+    if (profiles.length === 0) {
+      firstRunHandledRef.current = true;
+      setModalMode({ kind: 'create' });
+    }
+  }, [modalMode.kind, profiles.length]);
 
   // Guard: warn the user if they try to close/refresh the tab while a
   // transaction approval is still pending. Losing the window abandons
@@ -93,6 +148,11 @@ export default function Home() {
           <ConnectionStatus isConnected={isConnected} isReconnecting={isReconnecting} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <ProfilePill
+            onManageClick={() => setModalMode({ kind: 'manage', selectedId: activeProfile?.id ?? null })}
+            onSwitchProfile={handleSwitchProfile}
+            onDisconnect={handleDisconnect}
+          />
           <button
             onClick={debug.toggle}
             className={`rounded-lg p-2 transition-colors ${
@@ -122,6 +182,16 @@ export default function Home() {
         >
           {error}
         </div>
+      )}
+
+      {!activeProfile && (
+        <button
+          type="button"
+          onClick={() => setModalMode({ kind: 'create' })}
+          className="border-b border-amber-500/30 bg-amber-950/40 px-4 py-2 text-center text-sm text-amber-300 hover:bg-amber-950/60"
+        >
+          No profile configured — click to add one.
+        </button>
       )}
 
       {/* Main content area */}
@@ -178,6 +248,13 @@ export default function Home() {
           }}
         />
       )}
+
+      <ProfileModal
+        mode={modalMode}
+        onModeChange={setModalMode}
+        onClose={() => setModalMode({ kind: 'closed' })}
+        onConnectAfterSave={() => setModalMode({ kind: 'closed' })}
+      />
     </div>
   );
 }
