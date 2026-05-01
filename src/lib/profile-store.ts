@@ -6,13 +6,18 @@ export type SolanaCluster = 'mainnet-beta' | 'devnet' | 'testnet';
 
 export const VALID_CLUSTERS: SolanaCluster[] = ['mainnet-beta', 'devnet', 'testnet'];
 
+export type RpcPreset = 'mainnet' | 'devnet' | 'localnet' | 'custom';
+
+export const VALID_PRESETS: RpcPreset[] = ['mainnet', 'devnet', 'localnet', 'custom'];
+
 export interface AgentProfile {
   id: string;
   name: string;
   wsUrl: string;
   token: string;
-  rpcUrl: string;
-  cluster: SolanaCluster;
+  preset: RpcPreset;
+  customRpcUrl?: string;
+  customCluster?: SolanaCluster;
   createdAt: number;
 }
 
@@ -31,7 +36,9 @@ function safeRead(): StoreState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_STATE;
     const parsed = JSON.parse(raw) as Partial<StoreState>;
-    const profiles = Array.isArray(parsed.profiles) ? parsed.profiles.filter(isValidProfile) : [];
+    const profiles = Array.isArray(parsed.profiles)
+      ? parsed.profiles.map(migrateProfile).filter(isValidProfile)
+      : [];
     const activeId = typeof parsed.activeProfileId === 'string' ? parsed.activeProfileId : null;
     const activeProfileId = profiles.some((p) => p.id === activeId) ? activeId : null;
     return { profiles, activeProfileId };
@@ -50,19 +57,49 @@ function safeWrite(state: StoreState): void {
   }
 }
 
+function migrateProfile(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object') return raw;
+  const obj = raw as Record<string, unknown>;
+  if (typeof obj.preset === 'string') return obj;
+  if (typeof obj.rpcUrl === 'string' || typeof obj.cluster === 'string') {
+    const cluster = (VALID_CLUSTERS as string[]).includes(obj.cluster as string)
+      ? (obj.cluster as SolanaCluster)
+      : 'devnet';
+    return {
+      id: obj.id,
+      name: obj.name,
+      wsUrl: obj.wsUrl,
+      token: obj.token,
+      preset: 'custom',
+      customRpcUrl: typeof obj.rpcUrl === 'string' ? obj.rpcUrl : '',
+      customCluster: cluster,
+      createdAt: obj.createdAt,
+    };
+  }
+  return obj;
+}
+
 function isValidProfile(p: unknown): p is AgentProfile {
   if (!p || typeof p !== 'object') return false;
   const obj = p as Record<string, unknown>;
-  return (
-    typeof obj.id === 'string' &&
-    typeof obj.name === 'string' &&
-    typeof obj.wsUrl === 'string' &&
-    typeof obj.token === 'string' &&
-    typeof obj.rpcUrl === 'string' &&
-    typeof obj.cluster === 'string' &&
-    (VALID_CLUSTERS as string[]).includes(obj.cluster) &&
-    typeof obj.createdAt === 'number'
-  );
+  if (
+    typeof obj.id !== 'string' ||
+    typeof obj.name !== 'string' ||
+    typeof obj.wsUrl !== 'string' ||
+    typeof obj.token !== 'string' ||
+    typeof obj.preset !== 'string' ||
+    !(VALID_PRESETS as string[]).includes(obj.preset) ||
+    typeof obj.createdAt !== 'number'
+  ) {
+    return false;
+  }
+  if (obj.preset === 'custom') {
+    if (typeof obj.customRpcUrl !== 'string') return false;
+    if (typeof obj.customCluster !== 'string' || !(VALID_CLUSTERS as string[]).includes(obj.customCluster)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 let memoryState: StoreState = EMPTY_STATE;
@@ -88,7 +125,9 @@ function setState(next: StoreState): void {
 function subscribe(listener: () => void): () => void {
   ensureHydrated();
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 function getSnapshot(): StoreState {
@@ -104,8 +143,9 @@ export interface ProfileInput {
   name: string;
   wsUrl: string;
   token: string;
-  rpcUrl: string;
-  cluster: SolanaCluster;
+  preset: RpcPreset;
+  customRpcUrl?: string;
+  customCluster?: SolanaCluster;
 }
 
 export interface ValidationError {
@@ -115,13 +155,16 @@ export interface ValidationError {
 
 export function validateProfileInput(input: ProfileInput): ValidationError[] {
   const errors: ValidationError[] = [];
-  if (!input.name.trim()) {
-    errors.push({ field: 'name', message: 'Name is required' });
-  }
+  if (!input.name.trim()) errors.push({ field: 'name', message: 'Name is required' });
   errors.push(...validateWsUrl(input.wsUrl));
-  errors.push(...validateRpcUrl(input.rpcUrl));
-  if (!(VALID_CLUSTERS as string[]).includes(input.cluster)) {
-    errors.push({ field: 'cluster', message: 'Invalid cluster' });
+  if (!(VALID_PRESETS as string[]).includes(input.preset)) {
+    errors.push({ field: 'preset', message: 'Invalid network preset' });
+  }
+  if (input.preset === 'custom') {
+    errors.push(...validateCustomRpcUrl(input.customRpcUrl ?? ''));
+    if (input.customCluster && !(VALID_CLUSTERS as string[]).includes(input.customCluster)) {
+      errors.push({ field: 'customCluster', message: 'Invalid Explorer cluster' });
+    }
   }
   return errors;
 }
@@ -139,17 +182,40 @@ function validateWsUrl(value: string): ValidationError[] {
   return [];
 }
 
-function validateRpcUrl(value: string): ValidationError[] {
-  if (!value.trim()) return [{ field: 'rpcUrl', message: 'RPC URL is required' }];
+function validateCustomRpcUrl(value: string): ValidationError[] {
+  if (!value.trim()) return [{ field: 'customRpcUrl', message: 'RPC URL is required for custom' }];
   try {
     const url = new URL(value);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return [{ field: 'rpcUrl', message: 'RPC URL must use http:// or https://' }];
+      return [{ field: 'customRpcUrl', message: 'RPC URL must use http:// or https://' }];
     }
   } catch {
-    return [{ field: 'rpcUrl', message: 'RPC URL is not a valid URL' }];
+    return [{ field: 'customRpcUrl', message: 'RPC URL is not a valid URL' }];
   }
   return [];
+}
+
+export function effectiveRpcUrl(p: AgentProfile): string {
+  const raw = (() => {
+    switch (p.preset) {
+      case 'mainnet':  return '/api/rpc/mainnet';
+      case 'devnet':   return '/api/rpc/devnet';
+      case 'localnet': return 'http://localhost:8899';
+      case 'custom':   return p.customRpcUrl ?? '';
+    }
+  })();
+  return raw.startsWith('/') && typeof window !== 'undefined'
+    ? `${window.location.origin}${raw}`
+    : raw;
+}
+
+export function effectiveCluster(p: AgentProfile): SolanaCluster {
+  switch (p.preset) {
+    case 'mainnet':  return 'mainnet-beta';
+    case 'devnet':   return 'devnet';
+    case 'localnet': return 'devnet';
+    case 'custom':   return p.customCluster ?? 'devnet';
+  }
 }
 
 export function createProfile(input: ProfileInput): AgentProfile {
@@ -159,8 +225,11 @@ export function createProfile(input: ProfileInput): AgentProfile {
     name: input.name.trim(),
     wsUrl: input.wsUrl.trim(),
     token: input.token,
-    rpcUrl: input.rpcUrl.trim(),
-    cluster: input.cluster,
+    preset: input.preset,
+    ...(input.preset === 'custom' && {
+      customRpcUrl: (input.customRpcUrl ?? '').trim(),
+      customCluster: input.customCluster ?? 'devnet',
+    }),
     createdAt: Date.now(),
   };
   const profiles = [...memoryState.profiles, profile];
@@ -171,18 +240,22 @@ export function createProfile(input: ProfileInput): AgentProfile {
 
 export function updateProfile(id: string, patch: Partial<ProfileInput>): void {
   ensureHydrated();
-  const profiles = memoryState.profiles.map((p) =>
-    p.id === id
-      ? {
-          ...p,
-          ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
-          ...(patch.wsUrl !== undefined ? { wsUrl: patch.wsUrl.trim() } : {}),
-          ...(patch.token !== undefined ? { token: patch.token } : {}),
-          ...(patch.rpcUrl !== undefined ? { rpcUrl: patch.rpcUrl.trim() } : {}),
-          ...(patch.cluster !== undefined ? { cluster: patch.cluster } : {}),
-        }
-      : p,
-  );
+  const profiles = memoryState.profiles.map((p) => {
+    if (p.id !== id) return p;
+    const next: AgentProfile = { ...p };
+    if (patch.name !== undefined) next.name = patch.name.trim();
+    if (patch.wsUrl !== undefined) next.wsUrl = patch.wsUrl.trim();
+    if (patch.token !== undefined) next.token = patch.token;
+    if (patch.preset !== undefined) next.preset = patch.preset;
+    if (next.preset === 'custom') {
+      next.customRpcUrl = (patch.customRpcUrl ?? next.customRpcUrl ?? '').trim();
+      next.customCluster = patch.customCluster ?? next.customCluster ?? 'devnet';
+    } else {
+      delete next.customRpcUrl;
+      delete next.customCluster;
+    }
+    return next;
+  });
   setState({ ...memoryState, profiles });
 }
 
@@ -211,10 +284,9 @@ export interface UseProfileStoreReturn {
 
 export function useProfileStore(): UseProfileStoreReturn {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const activeProfile =
-    state.activeProfileId
-      ? state.profiles.find((p) => p.id === state.activeProfileId) ?? null
-      : null;
+  const activeProfile = state.activeProfileId
+    ? state.profiles.find((p) => p.id === state.activeProfileId) ?? null
+    : null;
   return {
     profiles: state.profiles,
     activeProfile,

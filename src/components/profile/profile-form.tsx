@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import {
   validateProfileInput,
   VALID_CLUSTERS,
+  VALID_PRESETS,
   type ProfileInput,
+  type RpcPreset,
   type SolanaCluster,
   type ValidationError,
 } from '@/lib/profile-store';
@@ -22,8 +24,22 @@ const EMPTY: ProfileInput = {
   name: '',
   wsUrl: '',
   token: '',
-  rpcUrl: 'https://api.devnet.solana.com',
-  cluster: 'devnet',
+  preset: 'devnet',
+  customRpcUrl: 'https://api.devnet.solana.com',
+  customCluster: 'devnet',
+};
+
+const PRESET_LABELS: Record<RpcPreset, string> = {
+  mainnet: 'Mainnet',
+  devnet: 'Devnet',
+  localnet: 'Localnet',
+  custom: 'Custom',
+};
+
+const PRESET_HELPERS: Partial<Record<RpcPreset, string>> = {
+  mainnet: "Routed through this app's API to keep the RPC URL private.",
+  devnet: "Routed through this app's API to keep the RPC URL private.",
+  localnet: 'Connects directly to http://localhost:8899 — start a local validator.',
 };
 
 export function ProfileForm({
@@ -103,41 +119,73 @@ export function ProfileForm({
         </div>
       </Field>
 
-      <Field label="Solana RPC URL" error={errorFor('rpcUrl')}>
-        <input
-          type="text"
-          value={value.rpcUrl}
-          onChange={(e) => set('rpcUrl', e.target.value)}
-          placeholder="https://api.devnet.solana.com"
-          className={`${inputClass(errorFor('rpcUrl'))} font-mono`}
-          spellCheck={false}
-        />
-      </Field>
-
-      <Field label="Cluster" error={errorFor('cluster')}>
-        <div className="flex gap-2">
-          {VALID_CLUSTERS.map((c) => (
+      <Field label="Network" error={errorFor('preset')}>
+        <div className="flex flex-wrap gap-2">
+          {VALID_PRESETS.map((p) => (
             <label
-              key={c}
+              key={p}
               className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                value.cluster === c
+                value.preset === p
                   ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300'
                   : 'border-zinc-700 text-zinc-400 hover:bg-zinc-800'
               }`}
             >
               <input
                 type="radio"
-                name="cluster"
-                value={c}
-                checked={value.cluster === c}
-                onChange={() => set('cluster', c as SolanaCluster)}
+                name="preset"
+                value={p}
+                checked={value.preset === p}
+                onChange={() => set('preset', p)}
                 className="sr-only"
               />
-              {c}
+              {PRESET_LABELS[p]}
             </label>
           ))}
         </div>
+        {PRESET_HELPERS[value.preset] && (
+          <p className="mt-1 text-xs text-zinc-500">{PRESET_HELPERS[value.preset]}</p>
+        )}
       </Field>
+
+      {value.preset === 'custom' && (
+        <>
+          <Field label="Custom RPC URL" error={errorFor('customRpcUrl')}>
+            <input
+              type="text"
+              value={value.customRpcUrl ?? ''}
+              onChange={(e) => set('customRpcUrl', e.target.value)}
+              placeholder="https://api.devnet.solana.com"
+              className={`${inputClass(errorFor('customRpcUrl'))} font-mono`}
+              spellCheck={false}
+            />
+          </Field>
+
+          <Field label="Explorer cluster" error={errorFor('customCluster')}>
+            <div className="flex gap-2">
+              {VALID_CLUSTERS.map((c) => (
+                <label
+                  key={c}
+                  className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    value.customCluster === c
+                      ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300'
+                      : 'border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="customCluster"
+                    value={c}
+                    checked={value.customCluster === c}
+                    onChange={() => set('customCluster', c as SolanaCluster)}
+                    className="sr-only"
+                  />
+                  {c}
+                </label>
+              ))}
+            </div>
+          </Field>
+        </>
+      )}
 
       <div className="mt-2 flex flex-wrap gap-2">
         <button

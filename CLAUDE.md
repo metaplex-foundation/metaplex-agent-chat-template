@@ -20,11 +20,17 @@ There is no test framework and no ESLint config — `typecheck` is the only prog
 
 ## Connection profiles
 
-There are no env vars. All runtime configuration (WS URL, token, Solana RPC, cluster) lives in `localStorage` under `plexchat-profiles`, managed by `src/lib/profile-store.ts`. The active profile drives both the WebSocket connection (`use-plexchat`) and the Solana `<ConnectionProvider endpoint>`. With no active profile, the app sits disconnected and renders a banner; the wallet adapter falls back to `https://api.devnet.solana.com` so the providers tree still mounts.
+There are no public env vars — runtime configuration (WS URL, token, RPC preset) lives in `localStorage` under `plexchat-profiles`, managed by `src/lib/profile-store.ts`. The active profile drives both the WebSocket connection (`use-plexchat`) and the Solana `<ConnectionProvider endpoint>`. With no active profile, the app sits disconnected and renders a banner; the wallet adapter falls back to `https://api.devnet.solana.com` so the providers tree still mounts.
 
-Profiles can be shared via URL hash fragments (`#ws=...&token=...&rpc=...&cluster=...&name=...`). On first paint, `page.tsx` decodes the hash, opens the modal in transient mode, and clears the hash so refreshes don't re-prompt.
+The RPC `preset` is one of `mainnet` / `devnet` / `localnet` / `custom`. Mainnet and devnet route the browser through `/api/rpc/[cluster]` (see `src/app/api/rpc/[cluster]/route.ts`), which forwards to the server-only `MAINNET_RPC_URL` / `DEVNET_RPC_URL` env vars (or public RPCs when unset). Localnet and custom connect directly. Localnet is intentionally unsupported in the proxy (returns 404) so the route can't be abused to reach the server's localhost.
 
-`src/lib/share-link.ts` owns the encode/decode logic. Tokens go in the hash by design — this is a dev tool and we explicitly accept the shoulder-surfing risk.
+Helpers `effectiveRpcUrl(profile)` and `effectiveCluster(profile)` derive the actual endpoint URL and Explorer cluster from the preset.
+
+Profiles can be shared via URL hash fragments (`#ws=...&token=...&preset=...&name=...`; custom adds `rpc` and `cluster`). On first paint, `page.tsx` decodes the hash, opens the modal in transient mode, and clears the hash so refreshes don't re-prompt.
+
+`src/lib/share-link.ts` owns the encode/decode logic and accepts both new (`preset=…`) and legacy (`rpc=…&cluster=…`) shapes for backward compat with already-shared links.
+
+**Polling-fallback caveat:** `Connection.confirmTransaction` opens a WebSocket subscription to the RPC endpoint for fast-path confirmations. The proxy is HTTP-only, so preset routes (`mainnet`, `devnet`) fall back to polling and confirmations take ~5–10s longer. Custom and localnet aren't affected. Acceptable trade-off for keeping URLs server-side.
 
 ## Architecture
 
@@ -45,7 +51,7 @@ Consumes the `debug:*` events from the same socket and reconstructs per-message 
 
 ### `src/lib/profile-store.ts` — connection config
 
-Owns the list of profiles and the active id. `useProfileStore()` is a `useSyncExternalStore`-backed hook so the header pill, modal, and providers tree all see the same state without prop-drilling. Persisted to one `localStorage` key as a single JSON blob.
+Owns the list of profiles and the active id. `useProfileStore()` is a `useSyncExternalStore`-backed hook so the header pill, modal, and providers tree all see the same state without prop-drilling. Persisted to one `localStorage` key as a single JSON blob; `safeRead` migrates old `{ rpcUrl, cluster }` records to `{ preset: 'custom', customRpcUrl, customCluster }` on load. Exposes `effectiveRpcUrl` / `effectiveCluster` helpers for consumers that need the resolved endpoint or Explorer cluster.
 
 ### `src/types/plexchat-protocol.ts` — the contract
 
