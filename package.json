@@ -4,9 +4,9 @@
   "private": true,
   "description": "PlexChat-compatible chat UI for Metaplex Agent Registry agents",
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start -p 3000",
+    "start": "next start -p 3001",
     "clean": "rm -rf .next",
     "typecheck": "tsc --noEmit"
   },
@@ -17,6 +17,7 @@
     "@solana/wallet-adapter-wallets": "^0.19.32",
     "@solana/web3.js": "^1.98.0",
     "@tailwindcss/postcss": "^4.0.0",
+    "bs58": "^6.0.0",
     "next": "^15.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

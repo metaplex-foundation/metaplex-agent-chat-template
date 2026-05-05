@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import type { ServerTransaction } from '@/types/plexchat-protocol';
-import { usePlexChat } from '@/hooks/use-plexchat';
+import type { ServerAuthChallenge, ServerTransaction } from '@/types/plexchat-protocol';
+import { usePlexChat, type AuthError, type AuthState } from '@/hooks/use-plexchat';
 import { useDebugPanel } from '@/hooks/use-debug-panel';
 import { ChatPanel } from '@/components/chat-panel';
 import { TransactionApproval } from '@/components/transaction-approval';
@@ -50,14 +50,31 @@ export default function Home() {
   const hashBootstrappedRef = useRef(false);
   const firstRunHandledRef = useRef(false);
 
-  const { messages, isConnected, isReconnecting, isAgentTyping, error, sendMessage, sendWalletConnect, sendWalletDisconnect, sendTxResult, sendTxError, wsLog, clearWsLog } =
-    usePlexChat({
-      url: activeProfile?.wsUrl ?? '',
-      token: activeProfile?.token ?? '',
-      onTransaction: (tx) => setTxQueue((prev) => [...prev, tx]),
-      onDebugEvent: debug.handleDebugEvent,
-    });
+  const {
+    messages,
+    isConnected,
+    isReconnecting,
+    isAgentTyping,
+    error,
+    authState,
+    authChallenge,
+    authError,
+    walletAddress,
+    isOwner,
+    signIn,
+    retryAuth,
+    sendMessage,
+    sendTxResult,
+    sendTxError,
+    wsLog,
+    clearWsLog,
+  } = usePlexChat({
+    url: activeProfile?.wsUrl ?? '',
+    onTransaction: (tx) => setTxQueue((prev) => [...prev, tx]),
+    onDebugEvent: debug.handleDebugEvent,
+  });
 
+  const isAuthenticated = authState === 'authenticated';
   const isBusy = txQueue.length > 0 || isAgentTyping;
 
   const handleSwitchProfile = (id: string) => {
@@ -76,17 +93,6 @@ export default function Home() {
     }
     setActiveProfile(null);
   };
-
-  // Sync wallet state with WebSocket server
-  useEffect(() => {
-    if (!isConnected) return;
-    const address = wallet.publicKey?.toBase58() ?? null;
-    if (address) {
-      sendWalletConnect(address);
-    } else {
-      sendWalletDisconnect();
-    }
-  }, [wallet.publicKey, isConnected, sendWalletConnect, sendWalletDisconnect]);
 
   // Bootstrap a transient profile from a share link's URL hash on first paint.
   // Runs once; the hash is cleared so a refresh doesn't re-prompt.
@@ -194,6 +200,20 @@ export default function Home() {
         </button>
       )}
 
+      {activeProfile && (
+        <AuthBanner
+          authState={authState}
+          authChallenge={authChallenge}
+          authError={authError}
+          walletAddress={walletAddress}
+          isOwner={isOwner}
+          walletConnected={!!wallet.publicKey}
+          canSign={!!wallet.signMessage}
+          signIn={signIn}
+          retryAuth={retryAuth}
+        />
+      )}
+
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -201,7 +221,7 @@ export default function Home() {
             messages={messages}
             isAgentTyping={isAgentTyping}
             isConnected={isConnected}
-            isWalletConnected={!!wallet.publicKey}
+            isAuthenticated={isAuthenticated}
             onSendMessage={sendMessage}
           />
         </div>
@@ -255,6 +275,119 @@ export default function Home() {
         onClose={() => setModalMode({ kind: 'closed' })}
         onConnectAfterSave={() => setModalMode({ kind: 'closed' })}
       />
+    </div>
+  );
+}
+
+interface AuthBannerProps {
+  authState: AuthState;
+  authChallenge: ServerAuthChallenge | null;
+  authError: AuthError | null;
+  walletAddress: string | null;
+  isOwner: boolean;
+  walletConnected: boolean;
+  canSign: boolean;
+  signIn: () => Promise<void>;
+  retryAuth: () => void;
+}
+
+function shortAddr(addr: string): string {
+  return addr.length > 12 ? `${addr.slice(0, 4)}…${addr.slice(-4)}` : addr;
+}
+
+function AuthBanner({
+  authState,
+  authChallenge,
+  authError,
+  walletAddress,
+  isOwner,
+  walletConnected,
+  canSign,
+  signIn,
+  retryAuth,
+}: AuthBannerProps) {
+  if (authState === 'connecting') {
+    return (
+      <div className="border-b border-zinc-800 bg-zinc-900/40 px-4 py-2 text-center text-xs text-zinc-400">
+        Connecting to agent…
+      </div>
+    );
+  }
+
+  if (authState === 'unauthenticated') {
+    if (!walletConnected) {
+      return (
+        <div className="border-b border-amber-500/30 bg-amber-950/40 px-4 py-2 text-center text-sm text-amber-300">
+          Connect a Solana wallet to sign in.
+        </div>
+      );
+    }
+    if (!canSign) {
+      return (
+        <div
+          role="alert"
+          className="border-b border-red-500/30 bg-red-950/40 px-4 py-2 text-center text-sm text-red-300"
+        >
+          This wallet does not support message signing — please use Phantom or Solflare.
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-wrap items-center justify-center gap-3 border-b border-indigo-500/30 bg-indigo-950/30 px-4 py-2 text-sm text-indigo-200">
+        <span>
+          Sign in to <strong>{authChallenge?.agentName ?? 'this agent'}</strong> with your Solana wallet to chat.
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            void signIn();
+          }}
+          className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-indigo-500"
+        >
+          Sign in
+        </button>
+      </div>
+    );
+  }
+
+  if (authState === 'authenticating') {
+    return (
+      <div className="border-b border-indigo-500/30 bg-indigo-950/30 px-4 py-2 text-center text-sm text-indigo-200">
+        Awaiting wallet signature…
+      </div>
+    );
+  }
+
+  if (authState === 'failed') {
+    return (
+      <div
+        role="alert"
+        className="flex flex-wrap items-center justify-center gap-3 border-b border-red-500/30 bg-red-950/40 px-4 py-2 text-sm text-red-300"
+      >
+        <span>{authError?.message ?? 'Authentication failed.'}</span>
+        <button
+          type="button"
+          onClick={retryAuth}
+          className="rounded-lg border border-red-400/40 px-3 py-1 text-xs font-medium text-red-200 transition-colors hover:bg-red-900/40"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  // authenticated
+  if (!walletAddress) return null;
+  return (
+    <div className="flex items-center justify-center gap-2 border-b border-emerald-500/30 bg-emerald-950/20 px-4 py-1 text-xs text-emerald-300">
+      <span>
+        Signed in as <span className="font-mono">{shortAddr(walletAddress)}</span>
+      </span>
+      {isOwner && (
+        <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-200">
+          owner
+        </span>
+      )}
     </div>
   );
 }

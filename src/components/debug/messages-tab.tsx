@@ -4,7 +4,7 @@ import { useMemo, useRef, useEffect, useState } from 'react';
 import type { WsLogEntry } from '@/hooks/use-plexchat';
 import { JsonTree } from './json-tree';
 
-type Filter = 'all' | 'chat' | 'debug' | 'wallet' | 'errors';
+type Filter = 'all' | 'chat' | 'debug' | 'auth' | 'errors';
 
 interface MessagesTabProps {
   wsLog: WsLogEntry[];
@@ -23,8 +23,14 @@ export function MessagesTab({ wsLog, onClear }: MessagesTabProps) {
       switch (filter) {
         case 'chat': return type === 'message' || type === 'typing';
         case 'debug': return type.startsWith('debug:');
-        case 'wallet': return type.startsWith('wallet_') || type === 'wallet_connect' || type === 'wallet_disconnect';
-        case 'errors': return type === 'error';
+        case 'auth':
+          return (
+            type === 'auth_challenge' ||
+            type === 'auth_response' ||
+            type === 'authenticated' ||
+            type === 'auth_error'
+          );
+        case 'errors': return type === 'error' || type === 'auth_error';
         default: return true;
       }
     });
@@ -43,7 +49,7 @@ export function MessagesTab({ wsLog, onClear }: MessagesTabProps) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
         <div className="flex gap-1">
-          {(['all', 'chat', 'debug', 'wallet', 'errors'] as Filter[]).map((f) => (
+          {(['all', 'chat', 'debug', 'auth', 'errors'] as Filter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}

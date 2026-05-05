@@ -14,7 +14,6 @@ export interface AgentProfile {
   id: string;
   name: string;
   wsUrl: string;
-  token: string;
   preset: RpcPreset;
   customRpcUrl?: string;
   customCluster?: SolanaCluster;
@@ -60,6 +59,9 @@ function safeWrite(state: StoreState): void {
 function migrateProfile(raw: unknown): unknown {
   if (!raw || typeof raw !== 'object') return raw;
   const obj = raw as Record<string, unknown>;
+  // v2: token field is no longer used (server now requires SIWS). Drop it
+  // silently from any persisted record so it doesn't fail validation.
+  if ('token' in obj) delete obj.token;
   if (typeof obj.preset === 'string') return obj;
   if (typeof obj.rpcUrl === 'string' || typeof obj.cluster === 'string') {
     const cluster = (VALID_CLUSTERS as string[]).includes(obj.cluster as string)
@@ -69,7 +71,6 @@ function migrateProfile(raw: unknown): unknown {
       id: obj.id,
       name: obj.name,
       wsUrl: obj.wsUrl,
-      token: obj.token,
       preset: 'custom',
       customRpcUrl: typeof obj.rpcUrl === 'string' ? obj.rpcUrl : '',
       customCluster: cluster,
@@ -86,7 +87,6 @@ function isValidProfile(p: unknown): p is AgentProfile {
     typeof obj.id !== 'string' ||
     typeof obj.name !== 'string' ||
     typeof obj.wsUrl !== 'string' ||
-    typeof obj.token !== 'string' ||
     typeof obj.preset !== 'string' ||
     !(VALID_PRESETS as string[]).includes(obj.preset) ||
     typeof obj.createdAt !== 'number'
@@ -142,7 +142,6 @@ function getServerSnapshot(): StoreState {
 export interface ProfileInput {
   name: string;
   wsUrl: string;
-  token: string;
   preset: RpcPreset;
   customRpcUrl?: string;
   customCluster?: SolanaCluster;
@@ -224,7 +223,6 @@ export function createProfile(input: ProfileInput): AgentProfile {
     id: crypto.randomUUID(),
     name: input.name.trim(),
     wsUrl: input.wsUrl.trim(),
-    token: input.token,
     preset: input.preset,
     ...(input.preset === 'custom' && {
       customRpcUrl: (input.customRpcUrl ?? '').trim(),
@@ -245,7 +243,6 @@ export function updateProfile(id: string, patch: Partial<ProfileInput>): void {
     const next: AgentProfile = { ...p };
     if (patch.name !== undefined) next.name = patch.name.trim();
     if (patch.wsUrl !== undefined) next.wsUrl = patch.wsUrl.trim();
-    if (patch.token !== undefined) next.token = patch.token;
     if (patch.preset !== undefined) next.preset = patch.preset;
     if (next.preset === 'custom') {
       next.customRpcUrl = (patch.customRpcUrl ?? next.customRpcUrl ?? '').trim();

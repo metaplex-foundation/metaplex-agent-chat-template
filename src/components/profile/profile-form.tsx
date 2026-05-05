@@ -23,7 +23,6 @@ interface ProfileFormProps {
 const EMPTY: ProfileInput = {
   name: '',
   wsUrl: '',
-  token: '',
   preset: 'devnet',
   customRpcUrl: 'https://api.devnet.solana.com',
   customCluster: 'devnet',
@@ -52,7 +51,6 @@ export function ProfileForm({
 }: ProfileFormProps) {
   const [value, setValue] = useState<ProfileInput>(initialValue ?? EMPTY);
   const [errors, setErrors] = useState<ValidationError[]>([]);
-  const [showToken, setShowToken] = useState(false);
 
   useEffect(() => {
     setValue(initialValue ?? EMPTY);
@@ -97,26 +95,6 @@ export function ProfileForm({
           className={`${inputClass(errorFor('wsUrl'))} font-mono`}
           spellCheck={false}
         />
-      </Field>
-
-      <Field label="Token" error={errorFor('token')}>
-        <div className="flex gap-2">
-          <input
-            type={showToken ? 'text' : 'password'}
-            value={value.token}
-            onChange={(e) => set('token', e.target.value)}
-            placeholder="Bearer token (32+ chars)"
-            className={`${inputClass(errorFor('token'))} flex-1 font-mono`}
-            spellCheck={false}
-          />
-          <button
-            type="button"
-            onClick={() => setShowToken((s) => !s)}
-            className="rounded-lg border border-zinc-700 px-3 text-xs text-zinc-300 hover:bg-zinc-800"
-          >
-            {showToken ? 'Hide' : 'Show'}
-          </button>
-        </div>
       </Field>
 
       <Field label="Network" error={errorFor('preset')}>

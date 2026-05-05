@@ -9,7 +9,7 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   isAgentTyping: boolean;
   isConnected: boolean;
-  isWalletConnected: boolean;
+  isAuthenticated: boolean;
   onSendMessage: (content: string) => void;
 }
 
@@ -19,7 +19,7 @@ const SUGGESTIONS = [
   'What tokens do I have?',
 ];
 
-export function ChatPanel({ messages, isAgentTyping, isConnected, isWalletConnected, onSendMessage }: ChatPanelProps) {
+export function ChatPanel({ messages, isAgentTyping, isConnected, isAuthenticated, onSendMessage }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -28,7 +28,7 @@ export function ChatPanel({ messages, isAgentTyping, isConnected, isWalletConnec
   // would otherwise fire two identical message sends.
   const lastSendRef = useRef(0);
 
-  const canSend = isConnected && isWalletConnected;
+  const canSend = isConnected && isAuthenticated;
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -161,9 +161,9 @@ export function ChatPanel({ messages, isAgentTyping, isConnected, isWalletConnec
               Not connected to agent. Messages cannot be sent.
             </p>
           )}
-          {isConnected && !isWalletConnected && (
+          {isConnected && !isAuthenticated && (
             <p className="mb-2 text-center text-xs text-amber-400/80">
-              Connect your wallet to start chatting.
+              Sign in with your wallet to start chatting.
             </p>
           )}
           <div className="flex items-end gap-2 rounded-2xl border border-zinc-700 bg-zinc-900 p-2 shadow-lg shadow-black/20 transition-colors focus-within:border-indigo-500/50 focus-within:shadow-indigo-500/5">
@@ -172,7 +172,7 @@ export function ChatPanel({ messages, isAgentTyping, isConnected, isWalletConnec
               value={input}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
-              placeholder={!isConnected ? 'Waiting for connection...' : !isWalletConnected ? 'Connect your wallet to start chatting...' : 'Type a message...'}
+              placeholder={!isConnected ? 'Waiting for connection...' : !isAuthenticated ? 'Sign in with your wallet to start chatting...' : 'Type a message...'}
               disabled={!canSend}
               rows={1}
               className="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-white placeholder-zinc-500 outline-none disabled:opacity-50"
