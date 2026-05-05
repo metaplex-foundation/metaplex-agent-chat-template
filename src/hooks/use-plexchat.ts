@@ -205,6 +205,11 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
               setWalletAddress(data.walletAddress);
               setIsOwner(data.isOwner);
               authedAddressRef.current = data.walletAddress;
+              // Sync the ref synchronously: the useEffect mirror only runs
+              // after this render commits, but flushOutgoingQueue() needs to
+              // see the new value *now* or it will short-circuit on the
+              // `authStateRef.current !== 'authenticated'` guard.
+              authStateRef.current = 'authenticated';
               setAuthState('authenticated');
               setError(null);
               setAuthError(null);
@@ -368,21 +373,16 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
       });
       const messageBytes = new TextEncoder().encode(canonical);
       const signatureBytes = await wallet.signMessage(messageBytes);
-
-      ws.send(
-        JSON.stringify({
-          type: 'auth_response',
-          publicKey: wallet.publicKey.toBase58(),
-          signature: bs58.encode(signatureBytes),
-          message: canonical,
-        }),
-      );
-      logOutgoing({
+      const encodedSignature = bs58.encode(signatureBytes);
+      const authResponse: ClientMessage = {
         type: 'auth_response',
         publicKey: wallet.publicKey.toBase58(),
-        signature: bs58.encode(signatureBytes),
+        signature: encodedSignature,
         message: canonical,
-      });
+      };
+
+      ws.send(JSON.stringify(authResponse));
+      logOutgoing(authResponse);
       // Stay in 'authenticating' until the server replies with `authenticated`
       // or `auth_error`.
     } catch (err) {
