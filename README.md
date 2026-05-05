@@ -17,10 +17,11 @@ Open http://localhost:3000. The first run prompts you to create a connection pro
 | --- | --- |
 | Name | Friendly label for the profile |
 | WebSocket URL | Full URL: `ws://localhost:3002` or `wss://agent.example.com:3002` |
-| Token | Shared secret matching the server's `WEB_CHANNEL_TOKEN` (≥32 chars) |
 | Network | `Mainnet` / `Devnet` / `Localnet` (presets) or `Custom` |
 | Custom RPC URL | Only when Network is Custom — your own RPC endpoint |
 | Explorer cluster | Only when Network is Custom — drives Solana Explorer links |
+
+There is no auth-token field. Authentication happens via Sign-In-With-Solana (SIWS): on connect the agent sends a nonce, the connected wallet signs it, and the wallet that signed becomes this session's identity. Authorization (whether that wallet is admitted past the handshake) is the agent's `AGENT_AUTH_MODE` policy — `owner`, `allowlist`, or `open`. See the agent-template's [`WEBSOCKET_PROTOCOL.md`](https://github.com/metaplex-foundation/metaplex-mastra-agent-template/blob/main/WEBSOCKET_PROTOCOL.md) § Authentication for the wire-level handshake.
 
 ## Network presets
 
@@ -37,9 +38,9 @@ Note: Solana's `confirmTransaction` uses a WebSocket subscription on direct conn
 
 ## Sharing a profile
 
-In the profile editor, click **Copy share link**. The URL contains the profile in its hash fragment (e.g. `#ws=…&token=…&preset=devnet&name=…`). Opening it on another machine pre-fills the form in transient mode — nothing is saved until you click **Save** or **Save & Connect**.
+In the profile editor, click **Copy share link**. The URL contains the profile in its hash fragment (e.g. `#ws=…&preset=devnet&name=…`). Opening it on another machine pre-fills the form in transient mode — nothing is saved until you click **Save** or **Save & Connect**.
 
-Hash fragments are not sent to servers (no Referer/proxy leakage), but they appear in browser history and are visible to anyone with screen access. Treat tokens accordingly.
+Share links carry no secrets — authentication still happens via SIWS, so the recipient must connect their own wallet and sign the handshake before they can chat. Hash fragments are not sent to servers (no Referer/proxy leakage); they do appear in browser history.
 
 ## Features
 
