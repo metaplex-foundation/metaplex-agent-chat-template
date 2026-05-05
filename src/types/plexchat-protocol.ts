@@ -1,22 +1,20 @@
 // ============================================================================
-// PlexChat WebSocket Protocol Types
+// PlexChat WebSocket Protocol Types (v2 — SIWS auth)
 // ============================================================================
 
 // --- Client -> Server Messages ---
+
+export interface ClientAuthResponse {
+  type: 'auth_response';
+  publicKey: string;
+  signature: string; // base58 of the raw 64-byte Ed25519 signature
+  message: string; // exact canonical SIWS message that was signed
+}
 
 export interface ClientChatMessage {
   type: 'message';
   content: string;
   sender_name?: string;
-}
-
-export interface ClientWalletConnect {
-  type: 'wallet_connect';
-  address: string;
-}
-
-export interface ClientWalletDisconnect {
-  type: 'wallet_disconnect';
 }
 
 export interface ClientTransactionResult {
@@ -32,9 +30,8 @@ export interface ClientTransactionError {
 }
 
 export type ClientMessage =
+  | ClientAuthResponse
   | ClientChatMessage
-  | ClientWalletConnect
-  | ClientWalletDisconnect
   | ClientTransactionResult
   | ClientTransactionError;
 
@@ -43,6 +40,33 @@ export type ClientMessage =
 export interface ServerConnected {
   type: 'connected';
   jid: string;
+}
+
+export type SiwsNetwork = 'solana-mainnet' | 'solana-devnet';
+export type AuthMode = 'owner' | 'allowlist' | 'open';
+
+export interface ServerAuthChallenge {
+  type: 'auth_challenge';
+  nonce: string;
+  issuedAt: string;
+  expiresAt: string;
+  agentName: string;
+  agentAsset: string | null;
+  network: SiwsNetwork;
+  authMode: AuthMode;
+}
+
+export interface ServerAuthenticated {
+  type: 'authenticated';
+  walletAddress: string;
+  isOwner: boolean;
+  sessionId: string;
+}
+
+export interface ServerAuthError {
+  type: 'auth_error';
+  code: string;
+  message: string;
 }
 
 export interface ServerChatMessage {
@@ -64,15 +88,6 @@ export interface ServerTransaction {
   index?: number;
   total?: number;
   feeSol?: number; // pre-computed fee included in this tx (public mode)
-}
-
-export interface ServerWalletConnected {
-  type: 'wallet_connected';
-  address: string;
-}
-
-export interface ServerWalletDisconnected {
-  type: 'wallet_disconnected';
 }
 
 export interface ServerError {
@@ -162,10 +177,11 @@ export type DebugMessage =
 
 export type ServerMessage =
   | ServerConnected
+  | ServerAuthChallenge
+  | ServerAuthenticated
+  | ServerAuthError
   | ServerChatMessage
   | ServerTyping
   | ServerTransaction
-  | ServerWalletConnected
-  | ServerWalletDisconnected
   | ServerError
   | DebugMessage;

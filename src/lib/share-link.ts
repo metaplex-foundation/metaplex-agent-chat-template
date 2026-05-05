@@ -8,11 +8,10 @@ import {
 } from './profile-store';
 
 export function encodeProfileToHash(
-  input: Pick<AgentProfile, 'wsUrl' | 'token' | 'name' | 'preset' | 'customRpcUrl' | 'customCluster'>,
+  input: Pick<AgentProfile, 'wsUrl' | 'name' | 'preset' | 'customRpcUrl' | 'customCluster'>,
 ): string {
   const params = new URLSearchParams();
   params.set('ws', input.wsUrl);
-  if (input.token) params.set('token', input.token);
   params.set('preset', input.preset);
   if (input.preset === 'custom') {
     if (input.customRpcUrl) params.set('rpc', input.customRpcUrl);
@@ -34,7 +33,11 @@ export function tryDecodeHashToProfile(hash: string): ProfileInput | null {
   }
   const ws = params.get('ws');
   if (!ws) return null;
-  const token = params.get('token') ?? '';
+  // v2: legacy share links may include a `token` param. The server now requires
+  // SIWS so the token is meaningless — ignore it but warn so users notice.
+  if (params.has('token')) {
+    console.warn('Share link contains a legacy auth token; ignoring (server now requires SIWS).');
+  }
   const name = params.get('name') ?? defaultNameFromWsUrl(ws);
 
   const presetRaw = params.get('preset');
@@ -46,9 +49,9 @@ export function tryDecodeHashToProfile(hash: string): ProfileInput | null {
       const customCluster: SolanaCluster = (VALID_CLUSTERS as string[]).includes(clusterRaw)
         ? (clusterRaw as SolanaCluster)
         : 'devnet';
-      return { name, wsUrl: ws, token, preset, customRpcUrl, customCluster };
+      return { name, wsUrl: ws, preset, customRpcUrl, customCluster };
     }
-    return { name, wsUrl: ws, token, preset };
+    return { name, wsUrl: ws, preset };
   }
 
   const legacyRpc = params.get('rpc');
@@ -60,7 +63,6 @@ export function tryDecodeHashToProfile(hash: string): ProfileInput | null {
     return {
       name,
       wsUrl: ws,
-      token,
       preset: 'custom',
       customRpcUrl: legacyRpc,
       customCluster,
