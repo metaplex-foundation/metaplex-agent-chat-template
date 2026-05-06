@@ -50,6 +50,11 @@ export interface HistoryHandle {
 
 interface UsePlexChatOptions {
   url: string;
+  // Stable identity of the active profile. Two profiles can legally share
+  // the same wsUrl (same agent, different RPC preset), so url alone is not
+  // a sufficient connection key — without this, switching between such
+  // profiles would silently keep the prior auth session.
+  profileId: string | null;
   history: HistoryHandle;
   // Cluster captured into transaction entries at creation time so the
   // explorer link survives a profile edit later.
@@ -87,6 +92,7 @@ function nextId(): string {
 
 export function usePlexChat({
   url,
+  profileId,
   history,
   cluster,
   onTransaction,
@@ -191,6 +197,10 @@ export function usePlexChat({
       setIsOwner(false);
       challengeRef.current = null;
       authedAddressRef.current = null;
+      // Streaming entry ids belong to the previous profile's history slice;
+      // they're not valid against whatever slice we're now talking to.
+      streamingMsgIdRef.current = null;
+      streamingTextRef.current = '';
 
       const ws = new WebSocket(url);
       wsRef.current = ws;
@@ -368,7 +378,10 @@ export function usePlexChat({
       reconnectDelayRef.current = Math.min(delay * 2, 10000);
       reconnectTimeoutRef.current = setTimeout(connect, delay);
     }
-  }, [url, logIncoming, flushOutgoingQueue]);
+    // profileId in the dep list: two distinct profiles can share a wsUrl
+    // (same agent, different RPC presets), and url alone would silently
+    // reuse the old socket and its bound auth session across the swap.
+  }, [url, profileId, logIncoming, flushOutgoingQueue]);
 
   useEffect(() => {
     connect();

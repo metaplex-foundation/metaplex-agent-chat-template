@@ -226,9 +226,19 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={() => {
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        // writeText rejects in non-secure contexts (HTTP) and when the
+        // permission is denied. Surface failures to the console rather
+        // than letting the unhandled rejection bubble — and don't paint
+        // the success checkmark in that case.
+        navigator.clipboard.writeText(text).then(
+          () => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          },
+          (err) => {
+            console.warn('Copy to clipboard failed', err);
+          },
+        );
       }}
       className="ml-2 flex-shrink-0 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-zinc-300"
       title="Copy signature"

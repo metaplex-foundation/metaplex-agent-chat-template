@@ -77,6 +77,7 @@ export default function Home() {
     clearWsLog,
   } = usePlexChat({
     url: activeProfile?.wsUrl ?? '',
+    profileId: activeProfile?.id ?? null,
     history,
     cluster,
     onTransaction: (tx) => setTxQueue((prev) => [...prev, tx]),
