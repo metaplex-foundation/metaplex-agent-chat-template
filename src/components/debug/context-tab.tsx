@@ -2,17 +2,23 @@
 
 import { useState } from 'react';
 import type { DebugContext } from '@/types/plexchat-protocol';
-import type { ChatMessage } from '@/hooks/use-plexchat';
+import type { HistoryEntry } from '@/types/history';
 
 interface ContextTabProps {
   context: DebugContext | null;
-  messages: ChatMessage[];
+  entries: HistoryEntry[];
   isConnected: boolean;
 }
 
-export function ContextTab({ context, messages, isConnected }: ContextTabProps) {
+export function ContextTab({ context, entries, isConnected }: ContextTabProps) {
   const [showHistory, setShowHistory] = useState(false);
 
+  const messages = entries.filter(
+    (e): e is Extract<HistoryEntry, { kind: 'message' }> => e.kind === 'message',
+  );
+  const transactions = entries.filter(
+    (e): e is Extract<HistoryEntry, { kind: 'transaction' }> => e.kind === 'transaction',
+  );
   const userMsgs = messages.filter((m) => m.sender === 'user').length;
   const agentMsgs = messages.filter((m) => m.sender === 'agent').length;
   const estimatedTokens = messages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
@@ -41,26 +47,38 @@ export function ContextTab({ context, messages, isConnected }: ContextTabProps) 
 
       <Section title="Conversation">
         <Row label="Messages" value={`${messages.length} (${userMsgs} user, ${agentMsgs} agent)`} />
+        <Row label="Transactions" value={String(transactions.length)} />
         <Row label="Est. tokens" value={`~${estimatedTokens.toLocaleString()}`} />
         <Row label="Server history" value={String(context?.conversationLength ?? 0)} />
-        {messages.length > 0 && (
+        {entries.length > 0 && (
           <button
             onClick={() => setShowHistory(!showHistory)}
             className="mt-1 text-[10px] text-indigo-400 hover:text-indigo-300"
           >
-            {showHistory ? 'Hide message history' : 'Show message history'}
+            {showHistory ? 'Hide history' : 'Show history'}
           </button>
         )}
         {showHistory && (
           <div className="mt-1.5 max-h-60 overflow-y-auto rounded bg-black/30 p-2">
-            {messages.map((m) => (
-              <div key={m.id} className="border-b border-zinc-800/50 py-1 last:border-0">
-                <span className={`text-[10px] font-medium ${m.sender === 'user' ? 'text-indigo-400' : 'text-green-400'}`}>
-                  {m.sender}:
-                </span>
-                <p className="text-[10px] text-zinc-400 line-clamp-2">{m.content}</p>
-              </div>
-            ))}
+            {entries.map((e) =>
+              e.kind === 'message' ? (
+                <div key={e.id} className="border-b border-zinc-800/50 py-1 last:border-0">
+                  <span className={`text-[10px] font-medium ${e.sender === 'user' ? 'text-indigo-400' : 'text-green-400'}`}>
+                    {e.sender}:
+                  </span>
+                  <p className="text-[10px] text-zinc-400 line-clamp-2">{e.content}</p>
+                </div>
+              ) : (
+                <div key={e.id} className="border-b border-zinc-800/50 py-1 last:border-0">
+                  <span className="text-[10px] font-medium text-amber-400">tx:</span>
+                  <p className="text-[10px] text-zinc-400 line-clamp-2">
+                    {e.status}
+                    {e.signature ? ` — ${e.signature.slice(0, 8)}…` : ''}
+                    {e.error ? ` — ${e.error}` : ''}
+                  </p>
+                </div>
+              ),
+            )}
           </div>
         )}
       </Section>

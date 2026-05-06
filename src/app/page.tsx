@@ -11,7 +11,8 @@ import { TransactionApproval } from '@/components/transaction-approval';
 import { DebugPanel } from '@/components/debug/debug-panel';
 import { ProfilePill } from '@/components/profile/profile-pill';
 import { ProfileModal, type ModalMode } from '@/components/profile/profile-modal';
-import { useProfileStore } from '@/lib/profile-store';
+import { useProfileStore, effectiveCluster } from '@/lib/profile-store';
+import { useHistoryStore } from '@/lib/history-store';
 import { hashContainsProfile, tryDecodeHashToProfile } from '@/lib/share-link';
 
 function ConnectionStatus({ isConnected, isReconnecting }: { isConnected: boolean; isReconnecting: boolean }) {
@@ -46,12 +47,17 @@ export default function Home() {
   const debug = useDebugPanel();
 
   const { activeProfile, setActiveProfile, profiles } = useProfileStore();
+  const history = useHistoryStore(activeProfile?.id ?? null);
   const [modalMode, setModalMode] = useState<ModalMode>({ kind: 'closed' });
   const hashBootstrappedRef = useRef(false);
   const firstRunHandledRef = useRef(false);
 
+  // Cluster is captured into each transaction entry at creation time so the
+  // explorer link survives a profile edit later. Falls back to devnet so the
+  // type stays narrow when no profile is active.
+  const cluster = activeProfile ? effectiveCluster(activeProfile) : 'devnet';
+
   const {
-    messages,
     isConnected,
     isReconnecting,
     isAgentTyping,
@@ -66,16 +72,27 @@ export default function Home() {
     sendMessage,
     sendTxResult,
     sendTxError,
+    reportTxStatus,
     wsLog,
     clearWsLog,
   } = usePlexChat({
     url: activeProfile?.wsUrl ?? '',
+    history,
+    cluster,
     onTransaction: (tx) => setTxQueue((prev) => [...prev, tx]),
     onDebugEvent: debug.handleDebugEvent,
   });
 
   const isAuthenticated = authState === 'authenticated';
   const isBusy = txQueue.length > 0 || isAgentTyping;
+  const canClearHistory = !!activeProfile && history.entries.length > 0;
+
+  const handleClearHistory = () => {
+    if (!canClearHistory) return;
+    const ok = window.confirm('Clear chat history for this profile? This cannot be undone.');
+    if (!ok) return;
+    history.clear();
+  };
 
   const handleSwitchProfile = (id: string) => {
     if (id === activeProfile?.id) return;
@@ -105,7 +122,7 @@ export default function Home() {
     if (!draft) return;
     firstRunHandledRef.current = true;
     setModalMode({ kind: 'transient', draft });
-    history.replaceState(null, '', window.location.pathname + window.location.search);
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }, []);
 
   // First-run auto-open: if there are no saved profiles and nothing else has
@@ -159,6 +176,22 @@ export default function Home() {
             onSwitchProfile={handleSwitchProfile}
             onDisconnect={handleDisconnect}
           />
+          <button
+            type="button"
+            onClick={handleClearHistory}
+            disabled={!canClearHistory}
+            className="rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+            title={canClearHistory ? 'Clear chat history' : 'No history to clear'}
+            aria-label="Clear chat history"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18" />
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+            </svg>
+          </button>
           <button
             onClick={debug.toggle}
             className={`rounded-lg p-2 transition-colors ${
@@ -218,7 +251,7 @@ export default function Home() {
       <div className="flex flex-1 overflow-hidden">
         <div className="flex flex-1 flex-col overflow-hidden">
           <ChatPanel
-            messages={messages}
+            entries={history.entries}
             isAgentTyping={isAgentTyping}
             isConnected={isConnected}
             isAuthenticated={isAuthenticated}
@@ -240,7 +273,7 @@ export default function Home() {
                 onTabChange={debug.setActiveTab}
                 traces={debug.traces}
                 context={debug.context}
-                messages={messages}
+                entries={history.entries}
                 wsLog={wsLog}
                 onClearWsLog={clearWsLog}
                 sessionTotals={debug.sessionTotals}
@@ -255,6 +288,7 @@ export default function Home() {
       {txQueue.length > 0 && (
         <TransactionApproval
           transaction={txQueue[0]}
+          onStatusChange={reportTxStatus}
           // Eager hand-off: send tx_result the moment sendRawTransaction
           // returns. Decouples the agent server from the chat UI's local
           // confirmation polling, which can fail spuriously when the
@@ -270,7 +304,19 @@ export default function Home() {
               setTxQueue((prev) => prev.slice(1));
             } else {
               sendTxError(result.correlationId, result.error ?? 'Transaction failed');
-              setTxQueue([]);
+              // Mark every queued tx after the failed one as abandoned so
+              // the history reflects that the user never got a chance to
+              // act on them. The first item (index 0) is the one we just
+              // rejected/failed and is already updated by sendTxError.
+              setTxQueue((prev) => {
+                for (let i = 1; i < prev.length; i++) {
+                  history.updateByCorrelationId(prev[i].correlationId, {
+                    status: 'abandoned',
+                    error: 'Cancelled by prior tx error',
+                  });
+                }
+                return [];
+              });
             }
           }}
         />

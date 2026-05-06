@@ -2,7 +2,8 @@
 
 import type { DebugTab, MessageTrace, SessionTotals } from '@/hooks/use-debug-panel';
 import type { DebugContext } from '@/types/plexchat-protocol';
-import type { ChatMessage, WsLogEntry } from '@/hooks/use-plexchat';
+import type { WsLogEntry } from '@/hooks/use-plexchat';
+import type { HistoryEntry } from '@/types/history';
 import { StepsTab } from './steps-tab';
 import { ContextTab } from './context-tab';
 import { MessagesTab } from './messages-tab';
@@ -13,7 +14,7 @@ interface DebugPanelProps {
   onTabChange: (tab: DebugTab) => void;
   traces: MessageTrace[];
   context: DebugContext | null;
-  messages: ChatMessage[];
+  entries: HistoryEntry[];
   wsLog: WsLogEntry[];
   onClearWsLog: () => void;
   sessionTotals: SessionTotals;
@@ -32,7 +33,7 @@ export function DebugPanel({
   onTabChange,
   traces,
   context,
-  messages,
+  entries,
   wsLog,
   onClearWsLog,
   sessionTotals,
@@ -58,7 +59,7 @@ export function DebugPanel({
 
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'steps' && <StepsTab traces={traces} />}
-        {activeTab === 'context' && <ContextTab context={context} messages={messages} isConnected={isConnected} />}
+        {activeTab === 'context' && <ContextTab context={context} entries={entries} isConnected={isConnected} />}
         {activeTab === 'messages' && <MessagesTab wsLog={wsLog} onClear={onClearWsLog} />}
         {activeTab === 'totals' && <TotalsTab totals={sessionTotals} />}
       </div>

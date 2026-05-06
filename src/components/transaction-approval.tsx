@@ -1,75 +1,12 @@
 'use client';
 
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { LAMPORTS_PER_SOL, SystemProgram, VersionedTransaction } from '@solana/web3.js';
+import { VersionedTransaction } from '@solana/web3.js';
 import { useState, useRef, useEffect, useMemo } from 'react';
 import type { ServerTransaction } from '@/types/plexchat-protocol';
+import type { TransactionStatus } from '@/types/history';
 import { useProfileStore, effectiveCluster } from '@/lib/profile-store';
-
-const SYSTEM_PROGRAM_ID = SystemProgram.programId.toBase58();
-
-function truncatePubkey(pk: string): string {
-  if (pk.length <= 12) return pk;
-  return `${pk.slice(0, 4)}${String.fromCharCode(0x2026)}${pk.slice(-4)}`;
-}
-
-interface TxPreview {
-  instructionCount: number;
-  programIds: string[];
-  transfers: Array<{ destination: string; sol: number }>;
-  decodeFailed: boolean;
-}
-
-function decodeTxPreview(base64: string): TxPreview {
-  const empty: TxPreview = {
-    instructionCount: 0,
-    programIds: [],
-    transfers: [],
-    decodeFailed: false,
-  };
-  try {
-    const bytes = Buffer.from(base64, 'base64');
-    const tx = VersionedTransaction.deserialize(bytes);
-    const keys = tx.message.staticAccountKeys;
-    const instructions = tx.message.compiledInstructions;
-    const programIdSet = new Set<string>();
-    const transfers: Array<{ destination: string; sol: number }> = [];
-
-    for (const ix of instructions) {
-      const programKey = keys[ix.programIdIndex];
-      if (!programKey) continue;
-      const programId = programKey.toBase58();
-      programIdSet.add(programId);
-
-      // Decode SystemProgram Transfer: first 4 bytes = instruction index (little-endian u32),
-      // Transfer = 2, followed by 8-byte little-endian u64 lamports.
-      if (programId === SYSTEM_PROGRAM_ID && ix.data.length >= 12) {
-        const data = ix.data;
-        const ixType = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
-        if (ixType === 2 && ix.accountKeyIndexes.length >= 2) {
-          const destIdx = ix.accountKeyIndexes[1];
-          const destKey = keys[destIdx];
-          if (destKey) {
-            // Read u64 lamports as bigint to avoid precision loss.
-            const view = new DataView(data.buffer, data.byteOffset + 4, 8);
-            const lamports = view.getBigUint64(0, true);
-            const sol = Number(lamports) / LAMPORTS_PER_SOL;
-            transfers.push({ destination: destKey.toBase58(), sol });
-          }
-        }
-      }
-    }
-
-    return {
-      instructionCount: instructions.length,
-      programIds: Array.from(programIdSet).slice(0, 3),
-      transfers,
-      decodeFailed: false,
-    };
-  } catch {
-    return { ...empty, decodeFailed: true };
-  }
-}
+import { decodeTxPreview, truncatePubkey } from '@/lib/tx-preview';
 
 export interface TxApprovalResult {
   correlationId: string;
@@ -93,6 +30,14 @@ interface TransactionApprovalProps {
    * does NOT need to send tx_result from here when `signature` is set.
    */
   onComplete: (result: TxApprovalResult) => void;
+  /**
+   * Optional: report intermediate flow transitions (signing, sending,
+   * confirming) so external consumers (the chat history bubble) can mirror
+   * the modal's live status. Terminal outcomes still flow through
+   * `onSubmitted` / `onComplete` — this hook is only for the in-flight
+   * states that aren't otherwise observable.
+   */
+  onStatusChange?: (correlationId: string, status: TransactionStatus) => void;
 }
 
 function Spinner() {
@@ -133,7 +78,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function TransactionApproval({ transaction, onSubmitted, onComplete }: TransactionApprovalProps) {
+export function TransactionApproval({ transaction, onSubmitted, onComplete, onStatusChange }: TransactionApprovalProps) {
   const { connection } = useConnection();
   const wallet = useWallet();
   const [status, setStatus] = useState<'pending' | 'signing' | 'sending' | 'confirming' | 'success' | 'error'>('pending');
@@ -188,12 +133,14 @@ export function TransactionApproval({ transaction, onSubmitted, onComplete }: Tr
 
     try {
       setStatus('signing');
+      onStatusChange?.(transaction.correlationId, 'signing');
       const bytes = Buffer.from(transaction.transaction, 'base64');
       const tx = VersionedTransaction.deserialize(bytes);
 
       const signed = await wallet.signTransaction(tx);
 
       setStatus('sending');
+      onStatusChange?.(transaction.correlationId, 'sending');
       const sig = await connection.sendRawTransaction(signed.serialize());
       setSignature(sig);
 
@@ -204,7 +151,34 @@ export function TransactionApproval({ transaction, onSubmitted, onComplete }: Tr
       onSubmitted?.(transaction.correlationId, sig);
 
       setStatus('confirming');
-      await connection.confirmTransaction(sig, 'confirmed');
+      // Note: we don't fire onStatusChange('confirming') here. The parent
+      // already saw `onSubmitted` fire and flipped the inline history bubble
+      // to `confirmed` — emitting `confirming` now would downgrade it.
+      //
+      // confirmTransaction relies on an RPC websocket subscription that
+      // can hang indefinitely on flaky RPCs (notably devnet) even when
+      // the transaction landed on-chain in seconds. We race it against a
+      // bounded fallback so the modal doesn't pin the user. We already
+      // have the signature and the agent has been notified, so timing
+      // out is purely a UX concern, not a correctness one.
+      const CONFIRM_TIMEOUT_MS = 15000;
+      let timedOut = false;
+      const timeoutPromise = new Promise<'timeout'>((resolve) => {
+        setTimeout(() => {
+          timedOut = true;
+          resolve('timeout');
+        }, CONFIRM_TIMEOUT_MS);
+      });
+      try {
+        await Promise.race([connection.confirmTransaction(sig, 'confirmed'), timeoutPromise]);
+      } catch (confirmErr) {
+        // confirmTransaction threw (network blip, etc.). The signature is
+        // still good and the agent has it — fall through to success.
+        console.warn('PlexChat: confirmTransaction failed, treating as submitted', confirmErr);
+      }
+      if (timedOut) {
+        console.warn('PlexChat: confirmTransaction timed out, treating as submitted');
+      }
       setStatus('success');
       autoCloseTimerRef.current = setTimeout(
         () => onComplete({ correlationId: transaction.correlationId, signature: sig }),
