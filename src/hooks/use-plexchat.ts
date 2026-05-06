@@ -10,16 +10,10 @@ import type {
   ServerTransaction,
   DebugMessage,
 } from '@/types/plexchat-protocol';
+import type { HistoryEntry, TransactionStatus } from '@/types/history';
+import type { SolanaCluster } from '@/lib/profile-store';
+import { decodeTxPreview } from '@/lib/tx-preview';
 import { buildSiwsMessage } from '@/lib/siws';
-
-export interface ChatMessage {
-  id: string;
-  content: string;
-  sender: 'user' | 'agent';
-  timestamp: Date;
-  isStreaming?: boolean;
-  isError?: boolean;
-}
 
 export interface WsLogEntry {
   id: string;
@@ -40,14 +34,36 @@ export interface AuthError {
   message: string;
 }
 
+// Minimal surface the hook needs from useHistoryStore. Narrower than the
+// store's full return type so tests / alternate consumers can pass a stub.
+export interface HistoryHandle {
+  addEntry: (entry: HistoryEntry) => void;
+  updateEntry: (
+    id: string,
+    patch: Record<string, unknown>,
+  ) => void;
+  updateByCorrelationId: (
+    correlationId: string,
+    patch: Record<string, unknown>,
+  ) => void;
+}
+
 interface UsePlexChatOptions {
   url: string;
+  // Stable identity of the active profile. Two profiles can legally share
+  // the same wsUrl (same agent, different RPC preset), so url alone is not
+  // a sufficient connection key — without this, switching between such
+  // profiles would silently keep the prior auth session.
+  profileId: string | null;
+  history: HistoryHandle;
+  // Cluster captured into transaction entries at creation time so the
+  // explorer link survives a profile edit later.
+  cluster: SolanaCluster;
   onTransaction?: (tx: ServerTransaction) => void;
   onDebugEvent?: (event: DebugMessage) => void;
 }
 
 interface UsePlexChatReturn {
-  messages: ChatMessage[];
   // Socket-level connectivity (post-`connected` greeting, pre-close).
   isConnected: boolean;
   isReconnecting: boolean;
@@ -64,6 +80,7 @@ interface UsePlexChatReturn {
   sendMessage: (content: string) => void;
   sendTxResult: (correlationId: string, signature: string) => void;
   sendTxError: (correlationId: string, reason: string) => void;
+  reportTxStatus: (correlationId: string, status: TransactionStatus) => void;
   wsLog: WsLogEntry[];
   clearWsLog: () => void;
 }
@@ -73,9 +90,15 @@ function nextId(): string {
   return `msg-${++messageId}-${Date.now()}`;
 }
 
-export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOptions): UsePlexChatReturn {
+export function usePlexChat({
+  url,
+  profileId,
+  history,
+  cluster,
+  onTransaction,
+  onDebugEvent,
+}: UsePlexChatOptions): UsePlexChatReturn {
   const wallet = useWallet();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isAgentTyping, setIsAgentTyping] = useState(false);
@@ -94,6 +117,13 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
   onTransactionRef.current = onTransaction;
   const onDebugEventRef = useRef(onDebugEvent);
   onDebugEventRef.current = onDebugEvent;
+  // Mirror history + cluster into refs so the WebSocket onmessage closure
+  // (captured at effect mount time) sees the *current* values after profile
+  // switches without forcing the whole socket to tear down on every change.
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  const clusterRef = useRef(cluster);
+  clusterRef.current = cluster;
 
   const [wsLog, setWsLog] = useState<WsLogEntry[]>([]);
   const streamingTextRef = useRef('');
@@ -167,6 +197,10 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
       setIsOwner(false);
       challengeRef.current = null;
       authedAddressRef.current = null;
+      // Streaming entry ids belong to the previous profile's history slice;
+      // they're not valid against whatever slice we're now talking to.
+      streamingMsgIdRef.current = null;
+      streamingTextRef.current = '';
 
       const ws = new WebSocket(url);
       wsRef.current = ws;
@@ -228,17 +262,19 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
                 const id = nextId();
                 streamingMsgIdRef.current = id;
                 streamingTextRef.current = data.delta;
-                setMessages((prev) => [
-                  ...prev,
-                  { id, content: data.delta, sender: 'agent', timestamp: new Date(), isStreaming: true },
-                ]);
+                historyRef.current.addEntry({
+                  kind: 'message',
+                  id,
+                  content: data.delta,
+                  sender: 'agent',
+                  timestamp: Date.now(),
+                  isStreaming: true,
+                });
               } else {
                 streamingTextRef.current += data.delta;
-                const text = streamingTextRef.current;
-                const id = streamingMsgIdRef.current;
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === id ? { ...m, content: text } : m))
-                );
+                historyRef.current.updateEntry(streamingMsgIdRef.current, {
+                  content: streamingTextRef.current,
+                });
               }
               break;
             }
@@ -246,19 +282,20 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
             case 'message':
               setIsAgentTyping(false);
               if (streamingMsgIdRef.current) {
-                const id = streamingMsgIdRef.current;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === id ? { ...m, content: data.content, isStreaming: false } : m
-                  )
-                );
+                historyRef.current.updateEntry(streamingMsgIdRef.current, {
+                  content: data.content,
+                  isStreaming: false,
+                });
                 streamingMsgIdRef.current = null;
                 streamingTextRef.current = '';
               } else {
-                setMessages((prev) => [
-                  ...prev,
-                  { id: nextId(), content: data.content, sender: 'agent', timestamp: new Date() },
-                ]);
+                historyRef.current.addEntry({
+                  kind: 'message',
+                  id: nextId(),
+                  content: data.content,
+                  sender: 'agent',
+                  timestamp: Date.now(),
+                });
               }
               break;
 
@@ -266,15 +303,35 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
               setIsAgentTyping(data.isTyping);
               break;
 
-            case 'transaction':
+            case 'transaction': {
+              // Add the inline bubble *before* forwarding, so the timeline
+              // reflects the request the moment the modal pops.
+              historyRef.current.addEntry({
+                kind: 'transaction',
+                id: nextId(),
+                correlationId: data.correlationId,
+                timestamp: Date.now(),
+                status: 'pending',
+                agentMessage: data.message,
+                preview: decodeTxPreview(data.transaction),
+                feeSol: data.feeSol,
+                index: data.index,
+                total: data.total,
+                cluster: clusterRef.current,
+              });
               onTransactionRef.current?.(data);
               break;
+            }
 
             case 'error':
-              setMessages((prev) => [
-                ...prev,
-                { id: nextId(), content: data.error, sender: 'agent', timestamp: new Date(), isError: true },
-              ]);
+              historyRef.current.addEntry({
+                kind: 'message',
+                id: nextId(),
+                content: data.error,
+                sender: 'agent',
+                timestamp: Date.now(),
+                isError: true,
+              });
               break;
           }
         } catch (err) {
@@ -321,7 +378,10 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
       reconnectDelayRef.current = Math.min(delay * 2, 10000);
       reconnectTimeoutRef.current = setTimeout(connect, delay);
     }
-  }, [url, logIncoming, flushOutgoingQueue]);
+    // profileId in the dep list: two distinct profiles can share a wsUrl
+    // (same agent, different RPC presets), and url alone would silently
+    // reuse the old socket and its bound auth session across the swap.
+  }, [url, profileId, logIncoming, flushOutgoingQueue]);
 
   useEffect(() => {
     connect();
@@ -432,15 +492,13 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
 
   const sendMessage = useCallback(
     (content: string) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: nextId(),
-          content,
-          sender: 'user',
-          timestamp: new Date(),
-        },
-      ]);
+      historyRef.current.addEntry({
+        kind: 'message',
+        id: nextId(),
+        content,
+        sender: 'user',
+        timestamp: Date.now(),
+      });
       send({ type: 'message', content });
     },
     [send],
@@ -448,6 +506,10 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
 
   const sendTxResult = useCallback(
     (correlationId: string, signature: string) => {
+      historyRef.current.updateByCorrelationId(correlationId, {
+        status: 'confirmed',
+        signature,
+      });
       send({ type: 'tx_result', correlationId, signature });
     },
     [send],
@@ -455,13 +517,22 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
 
   const sendTxError = useCallback(
     (correlationId: string, reason: string) => {
+      const status: TransactionStatus =
+        reason === 'User rejected transaction' ? 'rejected' : 'failed';
+      historyRef.current.updateByCorrelationId(correlationId, { status, error: reason });
       send({ type: 'tx_error', correlationId, reason });
     },
     [send],
   );
 
+  const reportTxStatus = useCallback(
+    (correlationId: string, status: TransactionStatus) => {
+      historyRef.current.updateByCorrelationId(correlationId, { status });
+    },
+    [],
+  );
+
   return {
-    messages,
     isConnected,
     isReconnecting,
     isAgentTyping,
@@ -476,6 +547,7 @@ export function usePlexChat({ url, onTransaction, onDebugEvent }: UsePlexChatOpt
     sendMessage,
     sendTxResult,
     sendTxError,
+    reportTxStatus,
     wsLog,
     clearWsLog,
   };

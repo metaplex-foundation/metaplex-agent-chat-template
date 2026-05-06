@@ -1,12 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage } from '@/hooks/use-plexchat';
+import type { HistoryEntry } from '@/types/history';
 import { ChatMessageBubble } from './chat-message';
 import { TypingIndicator } from './typing-indicator';
 
 interface ChatPanelProps {
-  messages: ChatMessage[];
+  entries: HistoryEntry[];
   isAgentTyping: boolean;
   isConnected: boolean;
   isAuthenticated: boolean;
@@ -19,7 +19,7 @@ const SUGGESTIONS = [
   'What tokens do I have?',
 ];
 
-export function ChatPanel({ messages, isAgentTyping, isConnected, isAuthenticated, onSendMessage }: ChatPanelProps) {
+export function ChatPanel({ entries, isAgentTyping, isConnected, isAuthenticated, onSendMessage }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -46,7 +46,7 @@ export function ChatPanel({ messages, isAgentTyping, isConnected, isAuthenticate
     if (isNearBottom) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, isAgentTyping]);
+  }, [entries, isAgentTyping]);
 
   // Track scroll position for scroll-to-bottom button
   useEffect(() => {
@@ -102,7 +102,7 @@ export function ChatPanel({ messages, isAgentTyping, isConnected, isAuthenticate
       {/* Message list */}
       <div ref={scrollRef} className="relative flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-3 px-4 py-6">
-          {messages.length === 0 ? (
+          {entries.length === 0 ? (
             <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-4">
               <div className="text-center">
                 <div className="mx-auto mb-8 flex h-44 w-44 items-center justify-center overflow-hidden rounded-[2rem] bg-zinc-900 ring-1 ring-zinc-800">
@@ -129,8 +129,8 @@ export function ChatPanel({ messages, isAgentTyping, isConnected, isAuthenticate
             </div>
           ) : (
             <>
-              {messages.map((msg) => (
-                <ChatMessageBubble key={msg.id} message={msg} />
+              {entries.map((entry) => (
+                <ChatMessageBubble key={entry.id} entry={entry} />
               ))}
               {isAgentTyping && <TypingIndicator />}
             </>
@@ -139,7 +139,7 @@ export function ChatPanel({ messages, isAgentTyping, isConnected, isAuthenticate
       </div>
 
       {/* Scroll to bottom button */}
-      {showScrollBtn && messages.length > 0 && (
+      {showScrollBtn && entries.length > 0 && (
         <div className="pointer-events-none absolute bottom-28 left-0 right-0 flex justify-center">
           <button
             onClick={scrollToBottom}
