@@ -255,13 +255,23 @@ export default function Home() {
       {txQueue.length > 0 && (
         <TransactionApproval
           transaction={txQueue[0]}
+          // Eager hand-off: send tx_result the moment sendRawTransaction
+          // returns. Decouples the agent server from the chat UI's local
+          // confirmation polling, which can fail spuriously when the
+          // Solana RPC websocket is flaky.
+          onSubmitted={(correlationId, signature) => {
+            sendTxResult(correlationId, signature);
+          }}
           onComplete={(result) => {
             if (result.signature) {
-              sendTxResult(result.correlationId, result.signature);
+              // tx_result was already sent via onSubmitted — just advance
+              // the queue. (Sending tx_result again would be harmless but
+              // redundant given the server's late-arrival handling.)
               setTxQueue((prev) => prev.slice(1));
             } else {
-              // Reject or error — abort the whole multi-tx queue. The agent
-              // decides what to do next based on the tx_error notification.
+              // Reject before broadcast (or signing error) — the agent
+              // never got a signature, so a tx_error is the right signal.
+              // Abort the whole multi-tx queue.
               sendTxError(result.correlationId, result.error ?? 'Transaction failed');
               setTxQueue([]);
             }
