@@ -79,19 +79,6 @@ export interface TxApprovalResult {
 
 interface TransactionApprovalProps {
   transaction: ServerTransaction;
-  /**
-   * Fired once as soon as `sendRawTransaction` returns a signature, BEFORE
-   * client-side confirmation polling. Lets the parent send `tx_result` to
-   * the agent eagerly so the agent can verify on-chain itself — decoupled
-   * from this component's local confirm UX (which can time out spuriously
-   * on flaky RPC websockets).
-   */
-  onSubmitted?: (correlationId: string, signature: string) => void;
-  /**
-   * Fired when the modal is dismissed. With `onSubmitted` wired up, this
-   * is purely the queue-advance / pre-broadcast-reject signal; the parent
-   * does NOT need to send tx_result from here when `signature` is set.
-   */
   onComplete: (result: TxApprovalResult) => void;
 }
 
@@ -133,7 +120,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function TransactionApproval({ transaction, onSubmitted, onComplete }: TransactionApprovalProps) {
+export function TransactionApproval({ transaction, onComplete }: TransactionApprovalProps) {
   const { connection } = useConnection();
   const wallet = useWallet();
   const [status, setStatus] = useState<'pending' | 'signing' | 'sending' | 'confirming' | 'success' | 'error'>('pending');
@@ -197,34 +184,13 @@ export function TransactionApproval({ transaction, onSubmitted, onComplete }: Tr
       const sig = await connection.sendRawTransaction(signed.serialize());
       setSignature(sig);
 
-      // Notify the parent immediately. The agent server now has the
-      // signature and can verify on-chain itself — independent of whether
-      // OUR confirmTransaction below succeeds or times out. This is what
-      // makes the chat resilient to RPC-websocket flakiness on devnet.
-      onSubmitted?.(transaction.correlationId, sig);
-
       setStatus('confirming');
-      const confirmPromise = connection.confirmTransaction(sig, 'confirmed');
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Transaction confirmation timed out after 60 seconds')), 60000)
+      await connection.confirmTransaction(sig, 'confirmed');
+      setStatus('success');
+      autoCloseTimerRef.current = setTimeout(
+        () => onComplete({ correlationId: transaction.correlationId, signature: sig }),
+        2000,
       );
-      try {
-        await Promise.race([confirmPromise, timeoutPromise]);
-        setStatus('success');
-        autoCloseTimerRef.current = setTimeout(
-          () => onComplete({ correlationId: transaction.correlationId, signature: sig }),
-          2000,
-        );
-      } catch (confirmErr) {
-        // Local confirmation failed (typically a flaky RPC websocket).
-        // The tx is already in flight on-chain and the agent has the
-        // signature via onSubmitted — show the user the timeout message
-        // but make the dismiss button a clean "OK" rather than a retry,
-        // since there's nothing to retry.
-        const detail = confirmErr instanceof Error ? confirmErr.message : 'Confirmation failed';
-        setError(`${detail} The agent will keep watching for the transaction on-chain.`);
-        setStatus('error');
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Transaction failed';
       setError(message);
@@ -240,18 +206,6 @@ export function TransactionApproval({ transaction, onSubmitted, onComplete }: Tr
   }
 
   function handleCancelAfterError() {
-    // If the wallet already broadcast and we have a signature, the agent
-    // got it via `onSubmitted` and is verifying on-chain. Pass the sig
-    // back as a "submitted" outcome so the parent advances the queue
-    // without sending tx_error (which would race the agent's own resolve
-    // and reject the tool just as it succeeds).
-    if (signature) {
-      onComplete({
-        correlationId: transaction.correlationId,
-        signature,
-      });
-      return;
-    }
     onComplete({
       correlationId: transaction.correlationId,
       error: error ?? 'Transaction failed',

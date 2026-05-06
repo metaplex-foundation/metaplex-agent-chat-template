@@ -25,16 +25,14 @@ There is no auth-token field. Authentication happens via Sign-In-With-Solana (SI
 
 ## Network presets
 
-| Preset | RPC routing |
+| Preset | RPC endpoint |
 | --- | --- |
-| Mainnet | Browser → `/api/rpc/mainnet` → server → `MAINNET_RPC_URL` (defaults to public RPC) |
-| Devnet | Browser → `/api/rpc/devnet` → server → `DEVNET_RPC_URL` (defaults to public RPC) |
-| Localnet | Browser → `http://localhost:8899` directly (no proxy; you run the validator) |
-| Custom | Browser → your URL directly |
+| Mainnet | `https://api.mainnet-beta.solana.com` |
+| Devnet | `https://api.devnet.solana.com` |
+| Localnet | `http://localhost:8899` |
+| Custom | Whatever URL you configure |
 
-The mainnet and devnet presets route through this app's API so the upstream RPC URL stays on the server. To use a paid RPC, set `MAINNET_RPC_URL` / `DEVNET_RPC_URL` in `.env.local` (server-only — no `NEXT_PUBLIC_` prefix). See `.env.local.example`.
-
-Note: Solana's `confirmTransaction` uses a WebSocket subscription on direct connections. The proxy is HTTP-only, so preset confirmations fall back to polling and take ~5–10s longer than direct RPCs. Custom and Localnet aren't affected.
+All connections go directly from the browser to the RPC. To use a paid endpoint, choose **Custom** and paste in your URL.
 
 ## Sharing a profile
 
