@@ -195,17 +195,12 @@ function validateCustomRpcUrl(value: string): ValidationError[] {
 }
 
 export function effectiveRpcUrl(p: AgentProfile): string {
-  const raw = (() => {
-    switch (p.preset) {
-      case 'mainnet':  return '/api/rpc/mainnet';
-      case 'devnet':   return '/api/rpc/devnet';
-      case 'localnet': return 'http://localhost:8899';
-      case 'custom':   return p.customRpcUrl ?? '';
-    }
-  })();
-  return raw.startsWith('/') && typeof window !== 'undefined'
-    ? `${window.location.origin}${raw}`
-    : raw;
+  switch (p.preset) {
+    case 'mainnet':  return 'https://api.mainnet-beta.solana.com';
+    case 'devnet':   return 'https://api.devnet.solana.com';
+    case 'localnet': return 'http://localhost:8899';
+    case 'custom':   return p.customRpcUrl ?? '';
+  }
 }
 
 export function effectiveCluster(p: AgentProfile): SolanaCluster {

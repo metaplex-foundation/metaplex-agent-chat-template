@@ -204,27 +204,12 @@ export function TransactionApproval({ transaction, onSubmitted, onComplete }: Tr
       onSubmitted?.(transaction.correlationId, sig);
 
       setStatus('confirming');
-      const confirmPromise = connection.confirmTransaction(sig, 'confirmed');
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Transaction confirmation timed out after 60 seconds')), 60000)
+      await connection.confirmTransaction(sig, 'confirmed');
+      setStatus('success');
+      autoCloseTimerRef.current = setTimeout(
+        () => onComplete({ correlationId: transaction.correlationId, signature: sig }),
+        2000,
       );
-      try {
-        await Promise.race([confirmPromise, timeoutPromise]);
-        setStatus('success');
-        autoCloseTimerRef.current = setTimeout(
-          () => onComplete({ correlationId: transaction.correlationId, signature: sig }),
-          2000,
-        );
-      } catch (confirmErr) {
-        // Local confirmation failed (typically a flaky RPC websocket).
-        // The tx is already in flight on-chain and the agent has the
-        // signature via onSubmitted — show the user the timeout message
-        // but make the dismiss button a clean "OK" rather than a retry,
-        // since there's nothing to retry.
-        const detail = confirmErr instanceof Error ? confirmErr.message : 'Confirmation failed';
-        setError(`${detail} The agent will keep watching for the transaction on-chain.`);
-        setStatus('error');
-      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Transaction failed';
       setError(message);

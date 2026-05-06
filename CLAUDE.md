@@ -20,17 +20,15 @@ There is no test framework and no ESLint config — `typecheck` is the only prog
 
 ## Connection profiles
 
-There are no public env vars — runtime configuration (WS URL, token, RPC preset) lives in `localStorage` under `plexchat-profiles`, managed by `src/lib/profile-store.ts`. The active profile drives both the WebSocket connection (`use-plexchat`) and the Solana `<ConnectionProvider endpoint>`. With no active profile, the app sits disconnected and renders a banner; the wallet adapter falls back to `https://api.devnet.solana.com` so the providers tree still mounts.
+There are no env vars — runtime configuration (WS URL, RPC preset) lives in `localStorage` under `plexchat-profiles`, managed by `src/lib/profile-store.ts`. The active profile drives both the WebSocket connection (`use-plexchat`) and the Solana `<ConnectionProvider endpoint>`. With no active profile, the app sits disconnected and renders a banner; the wallet adapter falls back to `https://api.devnet.solana.com` so the providers tree still mounts.
 
-The RPC `preset` is one of `mainnet` / `devnet` / `localnet` / `custom`. Mainnet and devnet route the browser through `/api/rpc/[cluster]` (see `src/app/api/rpc/[cluster]/route.ts`), which forwards to the server-only `MAINNET_RPC_URL` / `DEVNET_RPC_URL` env vars (or public RPCs when unset). Localnet and custom connect directly. Localnet is intentionally unsupported in the proxy (returns 404) so the route can't be abused to reach the server's localhost.
+The RPC `preset` is one of `mainnet` / `devnet` / `localnet` / `custom`. All four connect directly from the browser to the RPC endpoint — there is no server-side proxy. Mainnet and devnet point at the public Solana RPCs; users who need a paid endpoint pick `custom` and paste their URL. Direct connections matter because `Connection.confirmTransaction` and Umi both open a WebSocket subscription to the RPC for fast-path confirmations.
 
 Helpers `effectiveRpcUrl(profile)` and `effectiveCluster(profile)` derive the actual endpoint URL and Explorer cluster from the preset.
 
-Profiles can be shared via URL hash fragments (`#ws=...&token=...&preset=...&name=...`; custom adds `rpc` and `cluster`). On first paint, `page.tsx` decodes the hash, opens the modal in transient mode, and clears the hash so refreshes don't re-prompt.
+Profiles can be shared via URL hash fragments (`#ws=...&preset=...&name=...`; custom adds `rpc` and `cluster`). On first paint, `page.tsx` decodes the hash, opens the modal in transient mode, and clears the hash so refreshes don't re-prompt.
 
 `src/lib/share-link.ts` owns the encode/decode logic and accepts both new (`preset=…`) and legacy (`rpc=…&cluster=…`) shapes for backward compat with already-shared links.
-
-**Polling-fallback caveat:** `Connection.confirmTransaction` opens a WebSocket subscription to the RPC endpoint for fast-path confirmations. The proxy is HTTP-only, so preset routes (`mainnet`, `devnet`) fall back to polling and confirmations take ~5–10s longer. Custom and localnet aren't affected. Acceptable trade-off for keeping URLs server-side.
 
 ## Architecture
 
@@ -61,7 +59,7 @@ The full PlexChat wire protocol lives here as discriminated unions: `ClientMessa
 
 1. Server sends `{ type: 'transaction', transaction: <base64>, correlationId, ... }`.
 2. `page.tsx` enqueues it; `TransactionApproval` (`src/components/transaction-approval.tsx`) renders one tx at a time.
-3. The component decodes the base64 with `VersionedTransaction.deserialize` for a preview, asks the wallet to sign, sends via `connection.sendRawTransaction`, then `confirmTransaction` with a 60s timeout.
+3. The component decodes the base64 with `VersionedTransaction.deserialize` for a preview, asks the wallet to sign, sends via `connection.sendRawTransaction`, then awaits `confirmTransaction(sig, 'confirmed')` (which uses an RPC websocket subscription).
 4. On success → `tx_result { correlationId, signature }`. On reject/error → `tx_error { correlationId, reason }` **and the rest of the multi-tx queue is dropped** (`page.tsx` clears the queue on error so the agent decides what to do next based on the error notification).
 5. A `beforeunload` handler warns the user if they try to close the tab while a tx is pending — abandoning the correlationId would let the agent time out.
 

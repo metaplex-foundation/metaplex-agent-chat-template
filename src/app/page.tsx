@@ -269,9 +269,6 @@ export default function Home() {
               // redundant given the server's late-arrival handling.)
               setTxQueue((prev) => prev.slice(1));
             } else {
-              // Reject before broadcast (or signing error) — the agent
-              // never got a signature, so a tx_error is the right signal.
-              // Abort the whole multi-tx queue.
               sendTxError(result.correlationId, result.error ?? 'Transaction failed');
               setTxQueue([]);
             }
