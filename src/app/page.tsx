@@ -73,6 +73,11 @@ export default function Home() {
     sendTxResult,
     sendTxError,
     reportTxStatus,
+    allowlistState,
+    allowlistError,
+    fetchAllowlist,
+    addToAllowlist,
+    removeFromAllowlist,
     wsLog,
     clearWsLog,
   } = usePlexChat({
@@ -279,6 +284,12 @@ export default function Home() {
                 onClearWsLog={clearWsLog}
                 sessionTotals={debug.sessionTotals}
                 isConnected={isConnected}
+                isOwner={isOwner}
+                allowlistState={allowlistState}
+                allowlistError={allowlistError}
+                onFetchAllowlist={fetchAllowlist}
+                onAddToAllowlist={addToAllowlist}
+                onRemoveFromAllowlist={removeFromAllowlist}
               />
             </div>
           </>
