@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DebugMessage, DebugContext } from '@/types/plexchat-protocol';
+import type { DebugMessage, DebugContext } from '@metaplex-foundation/plexchat';
 
 // --- Types ---
 

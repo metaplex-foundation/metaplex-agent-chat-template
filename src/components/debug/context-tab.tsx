@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { DebugContext } from '@/types/plexchat-protocol';
+import type { DebugContext } from '@metaplex-foundation/plexchat';
 import type { HistoryEntry } from '@/types/history';
 
 interface ContextTabProps {

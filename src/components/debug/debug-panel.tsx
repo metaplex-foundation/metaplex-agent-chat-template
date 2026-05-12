@@ -5,7 +5,7 @@ import type {
   DebugContext,
   ServerAllowlistError,
   ServerAllowlistState,
-} from '@/types/plexchat-protocol';
+} from '@metaplex-foundation/plexchat';
 import type { WsLogEntry } from '@/hooks/use-plexchat';
 import type { HistoryEntry } from '@/types/history';
 import { StepsTab } from './steps-tab';

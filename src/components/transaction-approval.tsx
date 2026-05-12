@@ -3,7 +3,7 @@
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { VersionedTransaction } from '@solana/web3.js';
 import { useState, useRef, useEffect, useMemo } from 'react';
-import type { ServerTransaction } from '@/types/plexchat-protocol';
+import type { ServerTransaction } from '@metaplex-foundation/plexchat';
 import type { TransactionStatus } from '@/types/history';
 import { useProfileStore, effectiveCluster } from '@/lib/profile-store';
 import { decodeTxPreview, truncatePubkey } from '@/lib/tx-preview';
