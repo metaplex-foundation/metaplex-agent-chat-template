@@ -207,6 +207,12 @@ export function usePlexChat({
       setAuthError(null);
       setWalletAddress(null);
       setIsOwner(false);
+      // Drop the previous profile/session's allowlist snapshot and any
+      // targeted error. Without this, switching profiles leaves stale admin
+      // data visible, and the allowlist tab's `state === null` auto-fetch
+      // guard would not re-trigger on the new connection.
+      setAllowlistState(null);
+      setAllowlistError(null);
       challengeRef.current = null;
       authedAddressRef.current = null;
       // Streaming entry ids belong to the previous profile's history slice;
