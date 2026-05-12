@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { ServerAllowlistError, ServerAllowlistState } from '@/types/plexchat-protocol';
+import type { ServerAllowlistError, ServerAllowlistState } from '@metaplex-foundation/plexchat';
 
 const BASE58_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 

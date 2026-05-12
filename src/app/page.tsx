@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import type { ServerAuthChallenge, ServerTransaction } from '@/types/plexchat-protocol';
+import type { ServerAuthChallenge, ServerTransaction } from '@metaplex-foundation/plexchat';
 import { usePlexChat, type AuthError, type AuthState } from '@/hooks/use-plexchat';
 import { useDebugPanel } from '@/hooks/use-debug-panel';
 import { ChatPanel } from '@/components/chat-panel';

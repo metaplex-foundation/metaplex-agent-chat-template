@@ -51,9 +51,22 @@ Consumes the `debug:*` events from the same socket and reconstructs per-message 
 
 Owns the list of profiles and the active id. `useProfileStore()` is a `useSyncExternalStore`-backed hook so the header pill, modal, and providers tree all see the same state without prop-drilling. Persisted to one `localStorage` key as a single JSON blob; `safeRead` migrates old `{ rpcUrl, cluster }` records to `{ preset: 'custom', customRpcUrl, customCluster }` on load. Exposes `effectiveRpcUrl` / `effectiveCluster` helpers for consumers that need the resolved endpoint or Explorer cluster.
 
-### `src/types/plexchat-protocol.ts` — the contract
+### `@metaplex-foundation/plexchat` — the contract
 
-The full PlexChat wire protocol lives here as discriminated unions: `ClientMessage` (message / wallet_connect / wallet_disconnect / tx_result / tx_error) and `ServerMessage` (connected / message / typing / transaction / wallet_* / error / debug:\*). **Any change to the protocol must be made in lockstep with the agent server** — these types are not generated from a shared schema.
+The full PlexChat wire protocol no longer lives in this repo. It was
+extracted to the published npm package
+[`@metaplex-foundation/plexchat`](https://www.npmjs.com/package/@metaplex-foundation/plexchat),
+which both this chat UI and the agent server depend on. The package exports
+the `ClientMessage` / `ServerMessage` discriminated unions, the `debug:*`
+event types, and the `buildSiwsMessage` / `verifySiwsSignature` helpers.
+Import from `@metaplex-foundation/plexchat` instead of any
+`@/types/plexchat-protocol` or `@/lib/siws` path — those modules have been
+removed.
+
+The package is pinned in `package.json` (currently `0.1.0`). Bump the
+version like any other dependency when the protocol changes; the agent
+server must be bumped in lockstep since the types are not generated from a
+shared schema.
 
 ### Transaction approval flow
 

@@ -3,19 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import bs58 from 'bs58';
-import type {
-  ClientMessage,
-  ServerAllowlistState,
-  ServerAllowlistError,
-  ServerAuthChallenge,
-  ServerMessage,
-  ServerTransaction,
-  DebugMessage,
-} from '@/types/plexchat-protocol';
+import {
+  buildSiwsMessage,
+  type ClientMessage,
+  type ServerAllowlistState,
+  type ServerAllowlistError,
+  type ServerAuthChallenge,
+  type ServerMessage,
+  type ServerTransaction,
+  type DebugMessage,
+} from '@metaplex-foundation/plexchat';
 import type { HistoryEntry, TransactionStatus } from '@/types/history';
 import type { SolanaCluster } from '@/lib/profile-store';
 import { decodeTxPreview } from '@/lib/tx-preview';
-import { buildSiwsMessage } from '@/lib/siws';
 
 export interface WsLogEntry {
   id: string;
