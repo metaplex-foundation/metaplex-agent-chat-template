@@ -135,7 +135,12 @@ export interface ServerAllowlistError {
     | 'wrong_auth_mode'
     | 'file_write_failed'
     | 'env_only'
-    | 'internal';
+    | 'internal'
+    // Client-synthesized only — the hook surfaces this when an add/remove
+    // is attempted while the socket is closed or the session isn't
+    // authenticated, so the action fails fast instead of silently queuing.
+    // The server never emits this code.
+    | 'not_connected';
   message: string;
 }
 

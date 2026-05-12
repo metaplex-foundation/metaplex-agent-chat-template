@@ -571,20 +571,54 @@ export function usePlexChat({
     send({ type: 'allowlist_list' });
   }, [send]);
 
+  // Guard for write actions. The generic `send()` queues messages while
+  // offline, which is fine for chat and for the read-only `allowlist_list`,
+  // but for mutations it would silently buffer admin changes — and the
+  // outgoing queue persists across profile switches, so a queued add/remove
+  // could land on the wrong agent. Fail fast and surface a visible error.
+  const guardAllowlistWrite = useCallback((): ServerAllowlistError | null => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return {
+        type: 'allowlist_error',
+        code: 'not_connected',
+        message: 'Not connected to the agent. Reconnect and try again.',
+      };
+    }
+    if (authStateRef.current !== 'authenticated') {
+      return {
+        type: 'allowlist_error',
+        code: 'not_connected',
+        message: 'Sign in before managing the allowlist.',
+      };
+    }
+    return null;
+  }, []);
+
   const addToAllowlist = useCallback(
     (pubkey: string) => {
+      const guard = guardAllowlistWrite();
+      if (guard) {
+        setAllowlistError(guard);
+        return;
+      }
       setAllowlistError(null);
       send({ type: 'allowlist_add', pubkey });
     },
-    [send],
+    [send, guardAllowlistWrite],
   );
 
   const removeFromAllowlist = useCallback(
     (pubkey: string) => {
+      const guard = guardAllowlistWrite();
+      if (guard) {
+        setAllowlistError(guard);
+        return;
+      }
       setAllowlistError(null);
       send({ type: 'allowlist_remove', pubkey });
     },
-    [send],
+    [send, guardAllowlistWrite],
   );
 
   return {
