@@ -5,6 +5,8 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import bs58 from 'bs58';
 import type {
   ClientMessage,
+  ServerAllowlistState,
+  ServerAllowlistError,
   ServerAuthChallenge,
   ServerMessage,
   ServerTransaction,
@@ -81,6 +83,14 @@ interface UsePlexChatReturn {
   sendTxResult: (correlationId: string, signature: string) => void;
   sendTxError: (correlationId: string, reason: string) => void;
   reportTxStatus: (correlationId: string, status: TransactionStatus) => void;
+  // Owner-only allowlist admin (Sprint 2 #20). All three calls are no-ops
+  // when the connected wallet isn't the on-chain owner — the server returns
+  // an `allowlist_error: not_authorized` which surfaces via `allowlistError`.
+  allowlistState: ServerAllowlistState | null;
+  allowlistError: ServerAllowlistError | null;
+  fetchAllowlist: () => void;
+  addToAllowlist: (pubkey: string) => void;
+  removeFromAllowlist: (pubkey: string) => void;
   wsLog: WsLogEntry[];
   clearWsLog: () => void;
 }
@@ -108,6 +118,8 @@ export function usePlexChat({
   const [authError, setAuthError] = useState<AuthError | null>(null);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
+  const [allowlistState, setAllowlistState] = useState<ServerAllowlistState | null>(null);
+  const [allowlistError, setAllowlistError] = useState<ServerAllowlistError | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -195,6 +207,12 @@ export function usePlexChat({
       setAuthError(null);
       setWalletAddress(null);
       setIsOwner(false);
+      // Drop the previous profile/session's allowlist snapshot and any
+      // targeted error. Without this, switching profiles leaves stale admin
+      // data visible, and the allowlist tab's `state === null` auto-fetch
+      // guard would not re-trigger on the new connection.
+      setAllowlistState(null);
+      setAllowlistError(null);
       challengeRef.current = null;
       authedAddressRef.current = null;
       // Streaming entry ids belong to the previous profile's history slice;
@@ -332,6 +350,20 @@ export function usePlexChat({
                 timestamp: Date.now(),
                 isError: true,
               });
+              break;
+
+            case 'allowlist_state':
+              // Successful list/add/remove — clear any previous targeted
+              // error, since the server has now confirmed a fresh snapshot.
+              setAllowlistState(data);
+              setAllowlistError(null);
+              break;
+
+            case 'allowlist_error':
+              // Targeted error — does NOT clobber the last good snapshot,
+              // so the UI can show "couldn't add X" inline next to the
+              // existing list rather than blanking it.
+              setAllowlistError(data);
               break;
           }
         } catch (err) {
@@ -532,6 +564,63 @@ export function usePlexChat({
     [],
   );
 
+  const fetchAllowlist = useCallback(() => {
+    // Reset the targeted error optimistically so the UI doesn't show a
+    // stale "couldn't add X" while the new request is in flight.
+    setAllowlistError(null);
+    send({ type: 'allowlist_list' });
+  }, [send]);
+
+  // Guard for write actions. The generic `send()` queues messages while
+  // offline, which is fine for chat and for the read-only `allowlist_list`,
+  // but for mutations it would silently buffer admin changes — and the
+  // outgoing queue persists across profile switches, so a queued add/remove
+  // could land on the wrong agent. Fail fast and surface a visible error.
+  const guardAllowlistWrite = useCallback((): ServerAllowlistError | null => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return {
+        type: 'allowlist_error',
+        code: 'not_connected',
+        message: 'Not connected to the agent. Reconnect and try again.',
+      };
+    }
+    if (authStateRef.current !== 'authenticated') {
+      return {
+        type: 'allowlist_error',
+        code: 'not_connected',
+        message: 'Sign in before managing the allowlist.',
+      };
+    }
+    return null;
+  }, []);
+
+  const addToAllowlist = useCallback(
+    (pubkey: string) => {
+      const guard = guardAllowlistWrite();
+      if (guard) {
+        setAllowlistError(guard);
+        return;
+      }
+      setAllowlistError(null);
+      send({ type: 'allowlist_add', pubkey });
+    },
+    [send, guardAllowlistWrite],
+  );
+
+  const removeFromAllowlist = useCallback(
+    (pubkey: string) => {
+      const guard = guardAllowlistWrite();
+      if (guard) {
+        setAllowlistError(guard);
+        return;
+      }
+      setAllowlistError(null);
+      send({ type: 'allowlist_remove', pubkey });
+    },
+    [send, guardAllowlistWrite],
+  );
+
   return {
     isConnected,
     isReconnecting,
@@ -548,6 +637,11 @@ export function usePlexChat({
     sendTxResult,
     sendTxError,
     reportTxStatus,
+    allowlistState,
+    allowlistError,
+    fetchAllowlist,
+    addToAllowlist,
+    removeFromAllowlist,
     wsLog,
     clearWsLog,
   };

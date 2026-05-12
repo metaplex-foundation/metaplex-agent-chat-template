@@ -53,7 +53,7 @@ export interface SessionTotals {
   totalResponseTimeMs: number;
 }
 
-export type DebugTab = 'steps' | 'context' | 'messages' | 'totals';
+export type DebugTab = 'steps' | 'context' | 'messages' | 'totals' | 'allowlist';
 
 export interface UseDebugPanelReturn {
   isOpen: boolean;
@@ -71,7 +71,7 @@ export interface UseDebugPanelReturn {
 const STORAGE_KEY = 'debug-panel-open';
 const ACTIVE_TAB_STORAGE_KEY = 'plexchat-debug-active-tab';
 
-const VALID_TABS: DebugTab[] = ['steps', 'context', 'messages', 'totals'];
+const VALID_TABS: DebugTab[] = ['steps', 'context', 'messages', 'totals', 'allowlist'];
 
 function isValidTab(value: string | null): value is DebugTab {
   return value !== null && (VALID_TABS as string[]).includes(value);

@@ -29,11 +29,32 @@ export interface ClientTransactionError {
   reason: string;
 }
 
+// --- Owner-only allowlist admin (Sprint 2 #20) ---
+// All three messages require `isOwner=true` server-side; non-owners get an
+// `allowlist_error: not_authorized` reply instead of a state update.
+
+export interface ClientAllowlistList {
+  type: 'allowlist_list';
+}
+
+export interface ClientAllowlistAdd {
+  type: 'allowlist_add';
+  pubkey: string;
+}
+
+export interface ClientAllowlistRemove {
+  type: 'allowlist_remove';
+  pubkey: string;
+}
+
 export type ClientMessage =
   | ClientAuthResponse
   | ClientChatMessage
   | ClientTransactionResult
-  | ClientTransactionError;
+  | ClientTransactionError
+  | ClientAllowlistList
+  | ClientAllowlistAdd
+  | ClientAllowlistRemove;
 
 // --- Server -> Client Messages ---
 
@@ -94,6 +115,33 @@ export interface ServerError {
   type: 'error';
   error: string;
   code?: string;
+}
+
+export interface ServerAllowlistState {
+  type: 'allowlist_state';
+  /** File-managed wallets (the editable portion). */
+  wallets: string[];
+  /** Absolute path to the JSON file the server is mutating. */
+  filePath: string;
+  /** Wallets supplied via WALLET_ALLOWLIST env — read-only from the UI. */
+  envWallets: string[];
+}
+
+export interface ServerAllowlistError {
+  type: 'allowlist_error';
+  code:
+    | 'not_authorized'
+    | 'bad_pubkey'
+    | 'wrong_auth_mode'
+    | 'file_write_failed'
+    | 'env_only'
+    | 'internal'
+    // Client-synthesized only — the hook surfaces this when an add/remove
+    // is attempted while the socket is closed or the session isn't
+    // authenticated, so the action fails fast instead of silently queuing.
+    // The server never emits this code.
+    | 'not_connected';
+  message: string;
 }
 
 // --- Debug Events (Server -> Client) ---
@@ -184,4 +232,6 @@ export type ServerMessage =
   | ServerTyping
   | ServerTransaction
   | ServerError
+  | ServerAllowlistState
+  | ServerAllowlistError
   | DebugMessage;
