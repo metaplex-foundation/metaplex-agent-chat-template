@@ -13,6 +13,7 @@ import { ProfilePill } from '@/components/profile/profile-pill';
 import { ProfileModal, type ModalMode } from '@/components/profile/profile-modal';
 import { useProfileStore, effectiveCluster } from '@/lib/profile-store';
 import { useHistoryStore } from '@/lib/history-store';
+import { useManagedToken } from '@/lib/managed-token';
 import { hashContainsProfile, tryDecodeHashToProfile } from '@/lib/share-link';
 
 function ConnectionStatus({ isConnected, isReconnecting }: { isConnected: boolean; isReconnecting: boolean }) {
@@ -48,6 +49,7 @@ export default function Home() {
 
   const { activeProfile, setActiveProfile, profiles } = useProfileStore();
   const history = useHistoryStore(activeProfile?.id ?? null);
+  const managedToken = useManagedToken();
   const [modalMode, setModalMode] = useState<ModalMode>({ kind: 'closed' });
   const hashBootstrappedRef = useRef(false);
   const firstRunHandledRef = useRef(false);
@@ -62,6 +64,7 @@ export default function Home() {
     isReconnecting,
     isAgentTyping,
     error,
+    isManagedMode,
     authState,
     authChallenge,
     authError,
@@ -85,6 +88,7 @@ export default function Home() {
     profileId: activeProfile?.id ?? null,
     history,
     cluster,
+    managedToken,
     onTransaction: (tx) => setTxQueue((prev) => [...prev, tx]),
     onDebugEvent: debug.handleDebugEvent,
   });
@@ -175,6 +179,14 @@ export default function Home() {
             <span className="text-base font-medium text-zinc-400">Agent</span>
           </div>
           <ConnectionStatus isConnected={isConnected} isReconnecting={isReconnecting} />
+          {isManagedMode && (
+            <span
+              title="Connected with a managed-auth JWT — SIWS handshake bypassed."
+              className="rounded-full border border-zinc-700 bg-zinc-800/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-300"
+            >
+              managed
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ProfilePill
@@ -239,7 +251,7 @@ export default function Home() {
         </button>
       )}
 
-      {activeProfile && (
+      {activeProfile && !isManagedMode && (
         <AuthBanner
           authState={authState}
           authChallenge={authChallenge}

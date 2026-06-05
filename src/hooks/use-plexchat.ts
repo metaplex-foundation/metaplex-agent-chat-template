@@ -61,6 +61,12 @@ interface UsePlexChatOptions {
   // Cluster captured into transaction entries at creation time so the
   // explorer link survives a profile edit later.
   cluster: SolanaCluster;
+  // Optional managed-auth JWT. When present, the hook appends `?auth=<jwt>`
+  // to the WS URL on connect and skips the SIWS challenge/response flow —
+  // the server is expected to accept the bearer during the WebSocket
+  // handshake and proceed directly to `authenticated`. When null/undefined,
+  // the existing SIWS handshake is used unchanged.
+  managedToken?: string | null;
   onTransaction?: (tx: ServerTransaction) => void;
   onDebugEvent?: (event: DebugMessage) => void;
 }
@@ -71,6 +77,10 @@ interface UsePlexChatReturn {
   isReconnecting: boolean;
   isAgentTyping: boolean;
   error: string | null;
+  // True when a managed-auth JWT was supplied and the SIWS handshake was
+  // bypassed for this connection. Drives the header badge and suppresses
+  // the SIWS sign-in banner.
+  isManagedMode: boolean;
   // SIWS auth-plane state.
   authState: AuthState;
   authChallenge: ServerAuthChallenge | null;
@@ -105,6 +115,7 @@ export function usePlexChat({
   profileId,
   history,
   cluster,
+  managedToken,
   onTransaction,
   onDebugEvent,
 }: UsePlexChatOptions): UsePlexChatReturn {
@@ -237,7 +248,16 @@ export function usePlexChat({
       v2StreamsRef.current.clear();
       v2LastFinishedEntryIdRef.current = null;
 
-      const ws = new WebSocket(url);
+      // Managed-auth path: append the JWT as `?auth=<jwt>` so the server can
+      // validate during the WebSocket handshake (browser WS API has no way
+      // to attach headers, so query-string is the standard escape hatch).
+      // Preserves any pre-existing query the profile URL already carries.
+      let connectUrl = url;
+      if (managedToken) {
+        const sep = url.includes('?') ? '&' : '?';
+        connectUrl = `${url}${sep}auth=${encodeURIComponent(managedToken)}`;
+      }
+      const ws = new WebSocket(connectUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -491,7 +511,9 @@ export function usePlexChat({
     // profileId in the dep list: two distinct profiles can share a wsUrl
     // (same agent, different RPC presets), and url alone would silently
     // reuse the old socket and its bound auth session across the swap.
-  }, [url, profileId, logIncoming, flushOutgoingQueue]);
+    // managedToken: rotating the token requires re-handshaking on the
+    // server side, so a change tears down the socket here.
+  }, [url, profileId, managedToken, logIncoming, flushOutgoingQueue]);
 
   useEffect(() => {
     connect();
@@ -704,6 +726,7 @@ export function usePlexChat({
     isReconnecting,
     isAgentTyping,
     error,
+    isManagedMode: !!managedToken,
     authState,
     authChallenge,
     authError,
