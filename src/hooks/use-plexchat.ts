@@ -141,6 +141,21 @@ export function usePlexChat({
   const streamingTextRef = useRef('');
   const streamingMsgIdRef = useRef<string | null>(null);
 
+  // v2 streaming demux: server may interleave multiple in-flight assistant
+  // messages on the wire, each tagged with its own `id`. We keep a per-`id`
+  // buffer holding the local history entry id and the accumulated content,
+  // then reconcile against the terminal v1 `message` frame (still emitted on
+  // completion for backwards compat). `finish` clears the buffer for an id.
+  const v2StreamsRef = useRef<Map<string, { entryId: string; content: string }>>(
+    new Map(),
+  );
+  // Most-recently finished v2 stream's history entry id. The terminal v1
+  // `message` frame carries no id, so we reconcile by recency: if `finish`
+  // just cleared a v2 buffer and `message` arrives next, treat the `message`
+  // content as the canonical final body for that entry instead of creating a
+  // duplicate row.
+  const v2LastFinishedEntryIdRef = useRef<string | null>(null);
+
   // Mirror authState into a ref so the WebSocket onmessage closure (captured
   // when the effect mounts) sees the *current* auth state, not the stale value
   // from closure-creation time. Without this, post-auth chat-plane messages
@@ -219,6 +234,8 @@ export function usePlexChat({
       // they're not valid against whatever slice we're now talking to.
       streamingMsgIdRef.current = null;
       streamingTextRef.current = '';
+      v2StreamsRef.current.clear();
+      v2LastFinishedEntryIdRef.current = null;
 
       const ws = new WebSocket(url);
       wsRef.current = ws;
@@ -297,6 +314,57 @@ export function usePlexChat({
               break;
             }
 
+            case 'text_delta': {
+              // v2 streaming. Demux by message `id`; the existing v1
+              // `debug:text_delta` reducer remains untouched for v1 servers.
+              setIsAgentTyping(false);
+              const existing = v2StreamsRef.current.get(data.id);
+              if (!existing) {
+                const entryId = nextId();
+                v2StreamsRef.current.set(data.id, { entryId, content: data.delta });
+                historyRef.current.addEntry({
+                  kind: 'message',
+                  id: entryId,
+                  content: data.delta,
+                  sender: 'agent',
+                  timestamp: Date.now(),
+                  isStreaming: true,
+                });
+              } else {
+                existing.content += data.delta;
+                historyRef.current.updateEntry(existing.entryId, {
+                  content: existing.content,
+                });
+              }
+              break;
+            }
+
+            case 'tool_call':
+            case 'tool_result':
+              // Pushed into the wsLog ring buffer (see logIncoming above) so
+              // the Messages tab renders them via the existing collapsible
+              // JSON pattern. No state mutation is needed here — the debug
+              // panel reads off the ring buffer.
+              break;
+
+            case 'finish': {
+              // Mark the v2 in-progress message complete and clear its
+              // buffer. The terminal v1 `message` frame may still arrive for
+              // backwards compat; if it does, the `case 'message'` arm below
+              // tolerates "already finalized" by treating a missing buffer
+              // as a fresh entry. Servers SHOULD emit identical content in
+              // both frames so reconciliation is a no-op.
+              const buf = v2StreamsRef.current.get(data.id);
+              if (buf) {
+                historyRef.current.updateEntry(buf.entryId, {
+                  isStreaming: false,
+                });
+                v2StreamsRef.current.delete(data.id);
+                v2LastFinishedEntryIdRef.current = buf.entryId;
+              }
+              break;
+            }
+
             case 'message':
               setIsAgentTyping(false);
               if (streamingMsgIdRef.current) {
@@ -306,6 +374,16 @@ export function usePlexChat({
                 });
                 streamingMsgIdRef.current = null;
                 streamingTextRef.current = '';
+              } else if (v2LastFinishedEntryIdRef.current) {
+                // Reconcile with the just-finished v2 stream (v1 backwards-
+                // compat terminal frame): overwrite content so any divergence
+                // between accumulated deltas and the server's canonical body
+                // resolves in favor of the latter.
+                historyRef.current.updateEntry(v2LastFinishedEntryIdRef.current, {
+                  content: data.content,
+                  isStreaming: false,
+                });
+                v2LastFinishedEntryIdRef.current = null;
               } else {
                 historyRef.current.addEntry({
                   kind: 'message',
