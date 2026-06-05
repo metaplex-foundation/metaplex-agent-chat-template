@@ -4,7 +4,7 @@ import { useMemo, useRef, useEffect, useState } from 'react';
 import type { WsLogEntry } from '@/hooks/use-plexchat';
 import { JsonTree } from './json-tree';
 
-type Filter = 'all' | 'chat' | 'debug' | 'auth' | 'errors';
+type Filter = 'all' | 'chat' | 'stream' | 'debug' | 'auth' | 'errors';
 
 interface MessagesTabProps {
   wsLog: WsLogEntry[];
@@ -22,6 +22,14 @@ export function MessagesTab({ wsLog, onClear }: MessagesTabProps) {
       const type = entry.data.type;
       switch (filter) {
         case 'chat': return type === 'message' || type === 'typing';
+        case 'stream':
+          // v2 streaming frames (plexchat protocol >= 2).
+          return (
+            type === 'text_delta' ||
+            type === 'tool_call' ||
+            type === 'tool_result' ||
+            type === 'finish'
+          );
         case 'debug': return type.startsWith('debug:');
         case 'auth':
           return (
@@ -49,7 +57,7 @@ export function MessagesTab({ wsLog, onClear }: MessagesTabProps) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
         <div className="flex gap-1">
-          {(['all', 'chat', 'debug', 'auth', 'errors'] as Filter[]).map((f) => (
+          {(['all', 'chat', 'stream', 'debug', 'auth', 'errors'] as Filter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}

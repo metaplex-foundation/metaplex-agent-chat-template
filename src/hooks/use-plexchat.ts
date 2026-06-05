@@ -61,6 +61,12 @@ interface UsePlexChatOptions {
   // Cluster captured into transaction entries at creation time so the
   // explorer link survives a profile edit later.
   cluster: SolanaCluster;
+  // Optional managed-auth JWT. When present, the hook appends `?auth=<jwt>`
+  // to the WS URL on connect and skips the SIWS challenge/response flow —
+  // the server is expected to accept the bearer during the WebSocket
+  // handshake and proceed directly to `authenticated`. When null/undefined,
+  // the existing SIWS handshake is used unchanged.
+  managedToken?: string | null;
   onTransaction?: (tx: ServerTransaction) => void;
   onDebugEvent?: (event: DebugMessage) => void;
 }
@@ -71,6 +77,10 @@ interface UsePlexChatReturn {
   isReconnecting: boolean;
   isAgentTyping: boolean;
   error: string | null;
+  // True when a managed-auth JWT was supplied and the SIWS handshake was
+  // bypassed for this connection. Drives the header badge and suppresses
+  // the SIWS sign-in banner.
+  isManagedMode: boolean;
   // SIWS auth-plane state.
   authState: AuthState;
   authChallenge: ServerAuthChallenge | null;
@@ -105,6 +115,7 @@ export function usePlexChat({
   profileId,
   history,
   cluster,
+  managedToken,
   onTransaction,
   onDebugEvent,
 }: UsePlexChatOptions): UsePlexChatReturn {
@@ -140,6 +151,21 @@ export function usePlexChat({
   const [wsLog, setWsLog] = useState<WsLogEntry[]>([]);
   const streamingTextRef = useRef('');
   const streamingMsgIdRef = useRef<string | null>(null);
+
+  // v2 streaming demux: server may interleave multiple in-flight assistant
+  // messages on the wire, each tagged with its own `id`. We keep a per-`id`
+  // buffer holding the local history entry id and the accumulated content,
+  // then reconcile against the terminal v1 `message` frame (still emitted on
+  // completion for backwards compat). `finish` clears the buffer for an id.
+  const v2StreamsRef = useRef<Map<string, { entryId: string; content: string }>>(
+    new Map(),
+  );
+  // Most-recently finished v2 stream's history entry id. The terminal v1
+  // `message` frame carries no id, so we reconcile by recency: if `finish`
+  // just cleared a v2 buffer and `message` arrives next, treat the `message`
+  // content as the canonical final body for that entry instead of creating a
+  // duplicate row.
+  const v2LastFinishedEntryIdRef = useRef<string | null>(null);
 
   // Mirror authState into a ref so the WebSocket onmessage closure (captured
   // when the effect mounts) sees the *current* auth state, not the stale value
@@ -219,8 +245,19 @@ export function usePlexChat({
       // they're not valid against whatever slice we're now talking to.
       streamingMsgIdRef.current = null;
       streamingTextRef.current = '';
+      v2StreamsRef.current.clear();
+      v2LastFinishedEntryIdRef.current = null;
 
-      const ws = new WebSocket(url);
+      // Managed-auth path: append the JWT as `?auth=<jwt>` so the server can
+      // validate during the WebSocket handshake (browser WS API has no way
+      // to attach headers, so query-string is the standard escape hatch).
+      // Preserves any pre-existing query the profile URL already carries.
+      let connectUrl = url;
+      if (managedToken) {
+        const sep = url.includes('?') ? '&' : '?';
+        connectUrl = `${url}${sep}auth=${encodeURIComponent(managedToken)}`;
+      }
+      const ws = new WebSocket(connectUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -297,6 +334,57 @@ export function usePlexChat({
               break;
             }
 
+            case 'text_delta': {
+              // v2 streaming. Demux by message `id`; the existing v1
+              // `debug:text_delta` reducer remains untouched for v1 servers.
+              setIsAgentTyping(false);
+              const existing = v2StreamsRef.current.get(data.id);
+              if (!existing) {
+                const entryId = nextId();
+                v2StreamsRef.current.set(data.id, { entryId, content: data.delta });
+                historyRef.current.addEntry({
+                  kind: 'message',
+                  id: entryId,
+                  content: data.delta,
+                  sender: 'agent',
+                  timestamp: Date.now(),
+                  isStreaming: true,
+                });
+              } else {
+                existing.content += data.delta;
+                historyRef.current.updateEntry(existing.entryId, {
+                  content: existing.content,
+                });
+              }
+              break;
+            }
+
+            case 'tool_call':
+            case 'tool_result':
+              // Pushed into the wsLog ring buffer (see logIncoming above) so
+              // the Messages tab renders them via the existing collapsible
+              // JSON pattern. No state mutation is needed here — the debug
+              // panel reads off the ring buffer.
+              break;
+
+            case 'finish': {
+              // Mark the v2 in-progress message complete and clear its
+              // buffer. The terminal v1 `message` frame may still arrive for
+              // backwards compat; if it does, the `case 'message'` arm below
+              // tolerates "already finalized" by treating a missing buffer
+              // as a fresh entry. Servers SHOULD emit identical content in
+              // both frames so reconciliation is a no-op.
+              const buf = v2StreamsRef.current.get(data.id);
+              if (buf) {
+                historyRef.current.updateEntry(buf.entryId, {
+                  isStreaming: false,
+                });
+                v2StreamsRef.current.delete(data.id);
+                v2LastFinishedEntryIdRef.current = buf.entryId;
+              }
+              break;
+            }
+
             case 'message':
               setIsAgentTyping(false);
               if (streamingMsgIdRef.current) {
@@ -306,6 +394,16 @@ export function usePlexChat({
                 });
                 streamingMsgIdRef.current = null;
                 streamingTextRef.current = '';
+              } else if (v2LastFinishedEntryIdRef.current) {
+                // Reconcile with the just-finished v2 stream (v1 backwards-
+                // compat terminal frame): overwrite content so any divergence
+                // between accumulated deltas and the server's canonical body
+                // resolves in favor of the latter.
+                historyRef.current.updateEntry(v2LastFinishedEntryIdRef.current, {
+                  content: data.content,
+                  isStreaming: false,
+                });
+                v2LastFinishedEntryIdRef.current = null;
               } else {
                 historyRef.current.addEntry({
                   kind: 'message',
@@ -413,7 +511,9 @@ export function usePlexChat({
     // profileId in the dep list: two distinct profiles can share a wsUrl
     // (same agent, different RPC presets), and url alone would silently
     // reuse the old socket and its bound auth session across the swap.
-  }, [url, profileId, logIncoming, flushOutgoingQueue]);
+    // managedToken: rotating the token requires re-handshaking on the
+    // server side, so a change tears down the socket here.
+  }, [url, profileId, managedToken, logIncoming, flushOutgoingQueue]);
 
   useEffect(() => {
     connect();
@@ -626,6 +726,7 @@ export function usePlexChat({
     isReconnecting,
     isAgentTyping,
     error,
+    isManagedMode: !!managedToken,
     authState,
     authChallenge,
     authError,
