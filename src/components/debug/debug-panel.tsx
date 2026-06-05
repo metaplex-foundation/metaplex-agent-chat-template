@@ -1,6 +1,11 @@
 'use client';
 
-import type { DebugTab, MessageTrace, SessionTotals } from '@/hooks/use-debug-panel';
+import type {
+  DebugTab,
+  LedgerEntry,
+  MessageTrace,
+  SessionTotals,
+} from '@/hooks/use-debug-panel';
 import type {
   DebugContext,
   ServerAllowlistError,
@@ -12,6 +17,7 @@ import { StepsTab } from './steps-tab';
 import { ContextTab } from './context-tab';
 import { MessagesTab } from './messages-tab';
 import { TotalsTab } from './totals-tab';
+import { LedgerTab } from './ledger-tab';
 import { AllowlistTab } from './allowlist-tab';
 
 interface DebugPanelProps {
@@ -23,6 +29,8 @@ interface DebugPanelProps {
   wsLog: WsLogEntry[];
   onClearWsLog: () => void;
   sessionTotals: SessionTotals;
+  ledger: LedgerEntry[];
+  onClearLedger: () => void;
   isConnected: boolean;
   // Owner-only allowlist admin (Sprint 2 #20). The tab itself renders an
   // owner-only placeholder when isOwner=false; we still pass through so
@@ -40,6 +48,7 @@ const TABS: { id: DebugTab; label: string }[] = [
   { id: 'context', label: 'Context' },
   { id: 'messages', label: 'Messages' },
   { id: 'totals', label: 'Totals' },
+  { id: 'ledger', label: 'Ledger' },
   { id: 'allowlist', label: 'Allowlist' },
 ];
 
@@ -52,6 +61,8 @@ export function DebugPanel({
   wsLog,
   onClearWsLog,
   sessionTotals,
+  ledger,
+  onClearLedger,
   isConnected,
   isOwner,
   allowlistState,
@@ -83,6 +94,9 @@ export function DebugPanel({
         {activeTab === 'context' && <ContextTab context={context} entries={entries} isConnected={isConnected} />}
         {activeTab === 'messages' && <MessagesTab wsLog={wsLog} onClear={onClearWsLog} />}
         {activeTab === 'totals' && <TotalsTab totals={sessionTotals} />}
+        {activeTab === 'ledger' && (
+          <LedgerTab entries={ledger} onClear={onClearLedger} />
+        )}
         {activeTab === 'allowlist' && (
           <AllowlistTab
             isOwner={isOwner}
