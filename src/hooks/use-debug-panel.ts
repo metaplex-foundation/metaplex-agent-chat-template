@@ -1,7 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DebugMessage, DebugContext } from '@metaplex-foundation/plexchat';
+import type {
+  DebugMessage,
+  DebugContext,
+  DebugLedgerEntry,
+} from '@metaplex-foundation/plexchat';
 
 // --- Types ---
 
@@ -53,7 +57,17 @@ export interface SessionTotals {
   totalResponseTimeMs: number;
 }
 
-export type DebugTab = 'steps' | 'context' | 'messages' | 'totals' | 'allowlist';
+export type DebugTab = 'steps' | 'context' | 'messages' | 'totals' | 'ledger' | 'allowlist';
+
+/**
+ * One row in the Ledger tab. Mirrors the wire-format `DebugLedgerEntry`
+ * minus the `type` discriminator (rows are only stored after we've already
+ * branched on type), plus a stable client-side id so React reconciliation
+ * behaves even when the server doesn't supply one.
+ */
+export interface LedgerEntry extends Omit<DebugLedgerEntry, 'type'> {
+  id: string;
+}
 
 export interface UseDebugPanelReturn {
   isOpen: boolean;
@@ -63,6 +77,9 @@ export interface UseDebugPanelReturn {
   traces: MessageTrace[];
   context: DebugContext | null;
   sessionTotals: SessionTotals;
+  ledger: LedgerEntry[];
+  appendLedger: (entry: Omit<LedgerEntry, 'id'>) => void;
+  clearLedger: () => void;
   handleDebugEvent: (event: DebugMessage) => void;
 }
 
@@ -71,7 +88,10 @@ export interface UseDebugPanelReturn {
 const STORAGE_KEY = 'debug-panel-open';
 const ACTIVE_TAB_STORAGE_KEY = 'plexchat-debug-active-tab';
 
-const VALID_TABS: DebugTab[] = ['steps', 'context', 'messages', 'totals', 'allowlist'];
+const VALID_TABS: DebugTab[] = ['steps', 'context', 'messages', 'totals', 'ledger', 'allowlist'];
+
+/** Cap so the in-memory ledger doesn't grow unbounded on long sessions. */
+const LEDGER_MAX_ENTRIES = 500;
 
 function isValidTab(value: string | null): value is DebugTab {
   return value !== null && (VALID_TABS as string[]).includes(value);
@@ -111,6 +131,23 @@ export function useDebugPanel(): UseDebugPanelReturn {
   }, []);
   const [traces, setTraces] = useState<MessageTrace[]>([]);
   const [context, setContext] = useState<DebugContext | null>(null);
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const ledgerCounterRef = useRef(0);
+
+  const appendLedger = useCallback((entry: Omit<LedgerEntry, 'id'>) => {
+    setLedger((prev) => {
+      ledgerCounterRef.current += 1;
+      const id = `ledger-${ledgerCounterRef.current}`;
+      const next = [{ id, ...entry }, ...prev];
+      // Cap newest-first; drop the tail when we exceed LEDGER_MAX_ENTRIES so
+      // memory stays bounded on long-lived sessions.
+      return next.length > LEDGER_MAX_ENTRIES
+        ? next.slice(0, LEDGER_MAX_ENTRIES)
+        : next;
+    });
+  }, []);
+
+  const clearLedger = useCallback(() => setLedger([]), []);
   const [sessionTotals, setSessionTotals] = useState<SessionTotals>({
     totalInputTokens: 0,
     totalOutputTokens: 0,
@@ -264,6 +301,15 @@ export function useDebugPanel(): UseDebugPanelReturn {
         break;
       }
 
+      case 'debug:ledger': {
+        // Strip the discriminator so it doesn't clutter the row detail —
+        // we already know it's a ledger entry from being in this branch.
+        const { type: _type, ...payload } = event;
+        void _type;
+        appendLedger(payload);
+        break;
+      }
+
       case 'debug:generation_complete': {
         setTraces((prev) => {
           const id = activeTraceRef.current;
@@ -288,7 +334,7 @@ export function useDebugPanel(): UseDebugPanelReturn {
         break;
       }
     }
-  }, []);
+  }, [appendLedger]);
 
   return {
     isOpen,
@@ -298,6 +344,9 @@ export function useDebugPanel(): UseDebugPanelReturn {
     traces,
     context,
     sessionTotals,
+    ledger,
+    appendLedger,
+    clearLedger,
     handleDebugEvent,
   };
 }

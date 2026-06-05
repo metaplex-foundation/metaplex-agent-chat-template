@@ -283,6 +283,8 @@ export default function Home() {
                 wsLog={wsLog}
                 onClearWsLog={clearWsLog}
                 sessionTotals={debug.sessionTotals}
+                ledger={debug.ledger}
+                onClearLedger={debug.clearLedger}
                 isConnected={isConnected}
                 isOwner={isOwner}
                 allowlistState={allowlistState}
@@ -307,6 +309,27 @@ export default function Home() {
           // Solana RPC websocket is flaky.
           onSubmitted={(correlationId, signature) => {
             sendTxResult(correlationId, signature);
+            // Mirror into the Ledger tab so the operator can watch fund
+            // flows alongside the chat trace. The server-side instrumented
+            // events (x402, delegate-pay) land here too via the websocket;
+            // this local mirror covers tool-emitted user-signed txs.
+            const tx = txQueue[0];
+            debug.appendLedger({
+              kind: 'user-tx-signed',
+              label: tx?.message ?? 'User-signed transaction',
+              from: walletAddress,
+              to: null,
+              amount: tx?.feeSol != null ? String(tx.feeSol) : null,
+              unit: tx?.feeSol != null ? 'SOL' : null,
+              amountDisplay:
+                tx?.feeSol != null ? `~${tx.feeSol.toFixed(6)} SOL fee` : null,
+              signature,
+              cluster: (cluster as 'devnet' | 'mainnet-beta' | 'testnet') ?? null,
+              ts: new Date().toISOString(),
+              detail: tx
+                ? { correlationId, index: tx.index, total: tx.total }
+                : { correlationId },
+            });
           }}
           onComplete={(result) => {
             if (result.signature) {
